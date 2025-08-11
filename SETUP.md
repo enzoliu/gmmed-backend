@@ -11,8 +11,8 @@
 ### 1. 克隆專案
 
 ```bash
-git clone git@github.com:enzoliu/jymedical-backend.git
-cd jymedical-backend
+git clone git@github.com:enzoliu/gmmed-backend.git
+cd gmmed-backend
 ```
 
 ### 2. 安裝依賴
@@ -39,19 +39,22 @@ nano .env  # 或使用您喜歡的編輯器
 
 #### 🔐 安全密鑰生成
 
-**JWT Secret (建議至少32字符):**
+**JWT Secret (建議至少 32 字符):**
+
 ```bash
 openssl rand -base64 32
 ```
 
-**加密密鑰 (必須是32字節):**
+**加密密鑰 (必須是 32 字節):**
+
 ```bash
 openssl rand -hex 32
 ```
 
 #### 🗄️ 資料庫設置
 
-1. 建立PostgreSQL資料庫：
+1. 建立 PostgreSQL 資料庫：
+
 ```sql
 CREATE DATABASE breast_implant_warranty;
 CREATE USER warranty_user WITH PASSWORD 'your_password';
@@ -59,6 +62,7 @@ GRANT ALL PRIVILEGES ON DATABASE breast_implant_warranty TO warranty_user;
 ```
 
 2. 更新 `.env` 中的資料庫設定：
+
 ```env
 DB_HOST=localhost
 DB_PORT=5432
@@ -86,16 +90,19 @@ go run cmd/server/main.go
 ## 🧪 測試
 
 ### 編譯檢查
+
 ```bash
 go build ./...
 ```
 
 ### 執行測試
+
 ```bash
 go test ./...
 ```
 
-### API測試
+### API 測試
+
 ```bash
 go run test_api.go
 ```
@@ -124,52 +131,54 @@ backend/
 ## 🔧 開發工具推薦
 
 ### VS Code 擴展
-- Go (官方Go擴展)
-- PostgreSQL (PostgreSQL語法支援)
-- REST Client (API測試)
+
+- Go (官方 Go 擴展)
+- PostgreSQL (PostgreSQL 語法支援)
+- REST Client (API 測試)
 
 ### 資料庫管理工具
+
 - pgAdmin
 - DBeaver
 - TablePlus
 
 ## 🌍 環境變數說明
 
-| 變數名稱 | 說明 | 預設值 | 必填 |
-|---------|------|--------|------|
-| `DB_HOST` | 資料庫主機 | localhost | ✅ |
-| `DB_PORT` | 資料庫阜號 | 5432 | ✅ |
-| `DB_USER` | 資料庫使用者 | postgres | ✅ |
-| `DB_PASSWORD` | 資料庫密碼 | - | ✅ |
-| `DB_NAME` | 資料庫名稱 | breast_implant_warranty | ✅ |
-| `JWT_SECRET` | JWT簽名密鑰 | - | ✅ |
-| `ENCRYPTION_KEY` | 資料加密密鑰 | - | ✅ |
-| `SERVER_PORT` | 伺服器阜號 | 8080 | ❌ |
-| `DEBUG` | 除錯模式 | false | ❌ |
+| 變數名稱         | 說明         | 預設值                  | 必填 |
+| ---------------- | ------------ | ----------------------- | ---- |
+| `DB_HOST`        | 資料庫主機   | localhost               | ✅   |
+| `DB_PORT`        | 資料庫阜號   | 5432                    | ✅   |
+| `DB_USER`        | 資料庫使用者 | postgres                | ✅   |
+| `DB_PASSWORD`    | 資料庫密碼   | -                       | ✅   |
+| `DB_NAME`        | 資料庫名稱   | breast_implant_warranty | ✅   |
+| `JWT_SECRET`     | JWT 簽名密鑰 | -                       | ✅   |
+| `ENCRYPTION_KEY` | 資料加密密鑰 | -                       | ✅   |
+| `SERVER_PORT`    | 伺服器阜號   | 8080                    | ❌   |
+| `DEBUG`          | 除錯模式     | false                   | ❌   |
 
 ## 🚨 安全注意事項
 
 1. **絕對不要**將 `.env` 文件提交到版本控制
 2. 在生產環境中使用強密碼和隨機密鑰
-3. 定期更換JWT密鑰和加密密鑰
-4. 確保資料庫連接使用SSL（生產環境）
+3. 定期更換 JWT 密鑰和加密密鑰
+4. 確保資料庫連接使用 SSL（生產環境）
 
 ## 📞 支援
 
 如果遇到問題，請檢查：
 
-1. Go版本是否正確
-2. PostgreSQL是否正在執行
+1. Go 版本是否正確
+2. PostgreSQL 是否正在執行
 3. 環境變數是否正確設置
 4. 資料庫連接是否正常
 
 ## 🔄 常見問題
 
 **Q: 啟動時出現資料庫連接錯誤？**
-A: 檢查PostgreSQL是否執行，以及 `.env` 中的資料庫設定是否正確。
+A: 檢查 PostgreSQL 是否執行，以及 `.env` 中的資料庫設定是否正確。
 
-**Q: JWT令牌驗證失敗？**
+**Q: JWT 令牌驗證失敗？**
 A: 確保 `JWT_SECRET` 已正確設置且足夠複雜。
 
 **Q: 加密/解密失敗？**
-A: 確保 `ENCRYPTION_KEY` 是32字節的十六進制字符串。
+A: 確保 `ENCRYPTION_KEY` 是 32 字節的十六進制字符串。

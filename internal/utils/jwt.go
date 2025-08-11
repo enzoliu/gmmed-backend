@@ -29,7 +29,7 @@ func GenerateJWT(user *models.User, secret string, expireHours int) (string, tim
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    "jymedical",
+			Issuer:    "gmmed",
 			Subject:   user.ID,
 		},
 	}

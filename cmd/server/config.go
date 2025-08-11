@@ -21,13 +21,13 @@ type Config struct {
 	ENCRYPTION_KEY string `env:"ENCRYPTION_KEY" envSecretPath:"ENCRYPTION_KEY_SECRET_PATH" validate:"required"`
 
 	// Mailgun 設定
-	MAILGUN_DOMAIN     string `env:"MAILGUN_DOMAIN" envDefault:"mg.jymedical.com.tw"`
+	MAILGUN_DOMAIN     string `env:"MAILGUN_DOMAIN" envDefault:"mail.gmmed.com.tw"`
 	MAILGUN_API_KEY    string `env:"MAILGUN_API_KEY" envSecretPath:"MAILGUN_API_KEY_SECRET_PATH" validate:"required"`
-	MAILGUN_FROM_EMAIL string `env:"MAILGUN_FROM_EMAIL" envDefault:"noreply@jymedical.com.tw"`
+	MAILGUN_FROM_EMAIL string `env:"MAILGUN_FROM_EMAIL" envDefault:"noreply@gmmed.com.tw"`
 
 	// 公司設定
-	COMPANY_NAME               string `env:"COMPANY_NAME" envDefault:"捷揚醫材有限公司"`
-	COMPANY_EMAIL              string `env:"COMPANY_EMAIL" envDefault:"info@mg.jymedical.com.tw"`
+	COMPANY_NAME               string `env:"COMPANY_NAME" envDefault:"偉鉅股份有限公司"`
+	COMPANY_EMAIL              string `env:"COMPANY_EMAIL" envDefault:"info@mail.gmmed.com.tw"`
 	COMPANY_NOTIFICATION_EMAIL string `env:"COMPANY_NOTIFICATION_EMAIL" envDefault:"item.search@gmail.com"`
 
 	// 伺服器設定
@@ -37,7 +37,7 @@ type Config struct {
 
 	// Email 範本設定
 	EMAIL_TEMPLATE_SUBJECT     string `env:"EMAIL_TEMPLATE_SUBJECT" envDefault:"{patient_surname} 您的植入物保固已完成登錄"`
-	EMAIL_TEMPLATE_SENDER_NAME string `env:"EMAIL_TEMPLATE_SENDER_NAME" envDefault:"捷揚醫材客服部"`
+	EMAIL_TEMPLATE_SENDER_NAME string `env:"EMAIL_TEMPLATE_SENDER_NAME" envDefault:"偉鉅股份客服部"`
 
 	// 安全設定
 	CORS_ALLOWED_ORIGINS string `env:"CORS_ALLOWED_ORIGINS"`

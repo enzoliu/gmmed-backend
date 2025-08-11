@@ -8,7 +8,7 @@ import (
 	"context"
 )
 
-type JYMedicalRouteConfigItf interface {
+type GMMedRouteConfigItf interface {
 	singleton.ReadDBConfigItf
 	singleton.WriteDBConfigItf
 	services.AuthRouteConfigItf
@@ -16,7 +16,7 @@ type JYMedicalRouteConfigItf interface {
 	services.MailgunConfigItf
 }
 
-func RegisterJYMedicalRoutes(ctx context.Context, router RouterItf, singletonGroup *singleton.Group, cfg JYMedicalRouteConfigItf) {
+func RegisterGMMedRoutes(ctx context.Context, router RouterItf, singletonGroup *singleton.Group, cfg GMMedRouteConfigItf) {
 	writeDB := singletonGroup.GetWriteDB(ctx, cfg)
 
 	// 初始化服務

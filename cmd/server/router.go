@@ -40,7 +40,7 @@ func SetupRouter(ctx context.Context, cfg *Config) (*router.ExtendedRouter, erro
 	}
 
 	// register routes
-	router.RegisterJYMedicalRoutes(ctx, extendedRouter, singletonGroup, cfg)
+	router.RegisterGMMedRoutes(ctx, extendedRouter, singletonGroup, cfg)
 
 	return extendedRouter, nil
 }

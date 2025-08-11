@@ -20,7 +20,7 @@ echo ""
 # 配置變數 (請根據您的 GCP 設定修改)
 PROJECT_ID=${PROJECT_ID:-"jymedical"}
 REPO=${REPO:-"docker-images"}
-SERVICE_NAME=${SERVICE_NAME:-"jymedical-backend"}
+SERVICE_NAME=${SERVICE_NAME:-"gmmed-backend"}
 REGION=${REGION:-"asia-east1"}
 IMAGE_NAME="asia-east1-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE_NAME}"
 

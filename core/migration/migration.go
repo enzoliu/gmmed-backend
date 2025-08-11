@@ -13,12 +13,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type JYMedicalRouteConfigItf interface {
+type GMMedRouteConfigItf interface {
 	singleton.WriteDBConfigItf
 }
 
 // Migrate 執行資料庫遷移
-func Migrate(ctx context.Context, singletonGroup *singleton.Group, cfg JYMedicalRouteConfigItf) error {
+func Migrate(ctx context.Context, singletonGroup *singleton.Group, cfg GMMedRouteConfigItf) error {
 	writeDB := singletonGroup.GetWriteDB(ctx, cfg)
 
 	logrus.Info("Starting database migration...")

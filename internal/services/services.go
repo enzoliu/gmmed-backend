@@ -5,7 +5,7 @@ import (
 	"breast-implant-warranty-system/pkg/dbutil"
 )
 
-type JYMedicalServiceConfigItf interface {
+type GMMedServiceConfigItf interface {
 	singleton.ReadDBConfigItf
 	singleton.WriteDBConfigItf
 	AuthRouteConfigItf
@@ -24,7 +24,7 @@ type Services struct {
 }
 
 // NewServices 建立新的服務實例
-func NewServices(db dbutil.PgxClientItf, cfg JYMedicalServiceConfigItf) *Services {
+func NewServices(db dbutil.PgxClientItf, cfg GMMedServiceConfigItf) *Services {
 	return &Services{
 		User:     NewUserService(db),
 		Product:  NewProductService(db),
