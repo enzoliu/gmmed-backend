@@ -1,0 +1,53 @@
+# Google Cloud Build 配置文件
+# 用於自動化 CI/CD 部署
+
+steps:
+  # 構建 Docker 映像
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/breast-implant-warranty:$COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/breast-implant-warranty:latest',
+      '.'
+    ]
+
+  # 推送映像到 Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push',
+      'gcr.io/$PROJECT_ID/breast-implant-warranty:$COMMIT_SHA'
+    ]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push',
+      'gcr.io/$PROJECT_ID/breast-implant-warranty:latest'
+    ]
+
+  # 部署到 Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: [
+      'run', 'deploy', 'breast-implant-warranty',
+      '--image', 'gcr.io/$PROJECT_ID/breast-implant-warranty:$COMMIT_SHA',
+      '--region', 'asia-east1',
+      '--platform', 'managed',
+      '--allow-unauthenticated',
+      '--port', '8080',
+      '--memory', '512Mi',
+      '--cpu', '1',
+      '--min-instances', '0',
+      '--max-instances', '10',
+      '--concurrency', '80',
+      '--timeout', '300'
+    ]
+
+# 指定映像存儲位置
+images:
+  - 'gcr.io/$PROJECT_ID/breast-implant-warranty:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/breast-implant-warranty:latest'
+
+# 構建選項
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'

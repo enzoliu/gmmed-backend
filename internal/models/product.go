@@ -1,0 +1,53 @@
+package models
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/guregu/null/v5"
+)
+
+// Product 產品模型
+type Product struct {
+	ID            string      `json:"id" db:"id"`
+	ModelNumber   string      `json:"model_number" db:"model_number"`
+	Brand         string      `json:"brand" db:"brand"`
+	Type          string      `json:"type" db:"type"`
+	Size          null.String `json:"size" db:"size"`
+	WarrantyYears int         `json:"warranty_years" db:"warranty_years"`
+	Description   null.String `json:"description" db:"description"`
+	IsActive      bool        `json:"is_active" db:"is_active"`
+	CreatedAt     time.Time   `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at" db:"updated_at"`
+}
+
+// IsLifetimeWarranty 檢查是否為終身保固
+func (p *Product) IsLifetimeWarranty() bool {
+	return p.WarrantyYears == 0
+}
+
+// GetWarrantyDescription 取得保固描述
+func (p *Product) GetWarrantyDescription() string {
+	if p.IsLifetimeWarranty() {
+		return "終身保固"
+	}
+	return fmt.Sprintf("%d年保固", p.WarrantyYears)
+}
+
+// NullableProduct 用於資料庫查詢時的可選產品模型
+type NullableProduct struct {
+	ModelNumber   null.String `json:"model_number" db:"model_number"`
+	Brand         null.String `json:"brand" db:"brand"`
+	Type          null.String `json:"type" db:"type"`
+	Size          null.String `json:"size" db:"size"`
+	WarrantyYears null.Int    `json:"warranty_years" db:"warranty_years"`
+	Description   null.String `json:"description" db:"description"`
+	IsActive      null.Bool   `json:"is_active" db:"is_active"`
+}
+
+func (p *NullableProduct) IsLifetimeWarranty() bool {
+	if p.WarrantyYears.Valid {
+		return p.WarrantyYears.Int64 == 0
+	}
+	return false
+}

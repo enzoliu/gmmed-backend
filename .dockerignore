@@ -1,0 +1,65 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+DOCKER.md
+SETUP.md
+docs/
+
+# Environment files
+.env
+.env.*
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
+# Build artifacts
+bin/
+dist/
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*_test.go
+test_*.go
+coverage.out
+
+# Backup files
+backups/
+*.backup
+*.sql
+
+# Upload/Export directories (runtime data)
+uploads/
+exports/
+
+# Node.js (if any frontend assets)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Go specific
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
