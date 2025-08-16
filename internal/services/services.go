@@ -21,6 +21,7 @@ type Services struct {
 	Audit    *AuditService
 	Auth     *AuthService
 	Email    *EmailService
+	Serial   *SerialService
 }
 
 // NewServices 建立新的服務實例
@@ -32,5 +33,6 @@ func NewServices(db dbutil.PgxClientItf, cfg GMMedServiceConfigItf) *Services {
 		Audit:    NewAuditService(db),
 		Auth:     NewAuthService(db, cfg),
 		Email:    NewEmailService(cfg),
+		Serial:   NewSerialService(db),
 	}
 }

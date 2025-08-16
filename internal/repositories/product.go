@@ -2,6 +2,8 @@ package repositories
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"breast-implant-warranty-system/internal/entity"
 	"breast-implant-warranty-system/internal/models"
@@ -10,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stephenafamo/bob"
 	"github.com/stephenafamo/bob/dialect/psql"
-	"github.com/stephenafamo/bob/dialect/psql/dm"
 	"github.com/stephenafamo/bob/dialect/psql/im"
 	"github.com/stephenafamo/bob/dialect/psql/sm"
 	"github.com/stephenafamo/bob/dialect/psql/um"
@@ -212,21 +213,15 @@ func (r *ProductRepository) Update(ctx context.Context, product *models.Product)
 	return nil
 }
 
-// Delete 刪除產品
+// Delete 軟性刪除產品
 func (r *ProductRepository) Delete(ctx context.Context, id string) error {
-	builder := psql.Delete(
-		dm.From("products"),
-		dm.Where(psql.Quote("products", "id").EQ(psql.Arg(id))),
+	builder := psql.Update(
+		um.Table("products"),
+		um.SetCol("deleted_at").To("NOW()"),
+		um.Where(psql.Quote("products", "id").EQ(psql.Arg(id))),
 	)
-	result, err := dbutil.Exec(ctx, r.db, builder)
-	if err != nil {
-		return err
-	}
 
-	if result.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-	return nil
+	return dbutil.ShouldExec(ctx, r.db, builder)
 }
 
 // Search 搜尋產品
@@ -263,6 +258,9 @@ func (r *ProductRepository) Search(ctx context.Context, req *models.ProductSearc
 			psql.Quote("products", "size").ILike(psql.Arg("%"+req.Size.String+"%")),
 		)
 	}
+	conditions = append(conditions,
+		psql.Quote("products", "deleted_at").IsNull(),
+	)
 
 	builder := psql.Select(
 		sm.Columns(
@@ -421,4 +419,92 @@ func (r *ProductRepository) GetMetadataAll(ctx context.Context) (*models.Product
 	return &models.ProductMetadataAllResponse{
 		Data: data,
 	}, nil
+}
+
+// GetAllProducts 取得所有產品
+func (r *ProductRepository) GetAllProducts(ctx context.Context) ([]*models.Product, error) {
+	builder := psql.Select(
+		sm.Columns("id",
+			"model_number",
+			"brand",
+			"type",
+			"size",
+			"warranty_years",
+			"description",
+			"is_active",
+			"created_at",
+			"updated_at",
+		),
+		sm.From("products"),
+		sm.Where(psql.Quote("products", "deleted_at").IsNull()),
+	)
+	return dbutil.GetAll[models.Product](ctx, r.db, builder)
+}
+
+// CheckManyModelNumberExists 檢查多個型號是否存在，只返回不存在的ids
+func (r *ProductRepository) CheckManyModelNumberExists(ctx context.Context, modelNumbers []string) ([]string, error) {
+	if len(modelNumbers) == 0 {
+		return []string{}, nil
+	}
+
+	const batchSize = 100 // 每批處理 100 個型號
+
+	// 分批處理，使用真正的 NOT IN 查詢
+	nonExistingModelNumbers := make([]string, 0)
+
+	for i := 0; i < len(modelNumbers); i += batchSize {
+		end := i + batchSize
+		if end > len(modelNumbers) {
+			end = len(modelNumbers)
+		}
+
+		batch := modelNumbers[i:end]
+		batchArgs := make([]any, 0, len(batch))
+		for _, modelNumber := range batch {
+			batchArgs = append(batchArgs, modelNumber)
+		}
+
+		if len(batchArgs) > 0 {
+			// 使用 LEFT JOIN + IS NULL 查詢，這是最高效的方法
+			// 資料庫優化器對 JOIN 的處理通常比 NOT IN 更優化
+
+			// 構建 VALUES 子句
+			valuesClause := "VALUES "
+			placeholders := make([]string, len(batch))
+			for j := range batch {
+				placeholders[j] = fmt.Sprintf("($%d)", j+1)
+			}
+			valuesClause += strings.Join(placeholders, ", ")
+
+			// 使用 LEFT JOIN + IS NULL 查詢
+			rawSQL := fmt.Sprintf(`
+				SELECT m.model_number 
+				FROM (%s) AS m(model_number)
+				LEFT JOIN products p ON m.model_number = p.model_number
+				WHERE p.model_number IS NULL
+			`, valuesClause)
+
+			// 執行查詢
+			rows, err := r.db.Query(ctx, rawSQL, batchArgs...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to query non-existing model numbers batch %d-%d: %w", i, end-1, err)
+			}
+			defer rows.Close()
+
+			// 讀取結果
+			for rows.Next() {
+				var modelNumber string
+				if err := rows.Scan(&modelNumber); err != nil {
+					return nil, fmt.Errorf("failed to scan model number: %w", err)
+				}
+				nonExistingModelNumbers = append(nonExistingModelNumbers, modelNumber)
+			}
+
+			if err := rows.Err(); err != nil {
+				return nil, fmt.Errorf("error iterating rows: %w", err)
+			}
+		}
+	}
+
+	return nonExistingModelNumbers, nil
 }

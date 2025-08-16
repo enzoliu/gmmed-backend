@@ -284,6 +284,11 @@ func (s *ProductService) GetMetadataAll(ctx context.Context) (*models.ProductMet
 	return s.productRepo.GetMetadataAll(ctx)
 }
 
+// GetAllProducts 取得所有產品
+func (s *ProductService) GetAllProducts(ctx context.Context) ([]*models.Product, error) {
+	return s.productRepo.GetAllProducts(ctx)
+}
+
 // validateCreateRequest 驗證建立產品請求
 func (s *ProductService) validateCreateRequest(req *ProductCreateRequest) error {
 	if req.ModelNumber == "" {

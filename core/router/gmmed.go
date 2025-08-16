@@ -67,6 +67,7 @@ func RegisterGMMedRoutes(ctx context.Context, router RouterItf, singletonGroup *
 	products.PUT("/:id", h.Product.Update, middleware.RequireAdminOrEditor())
 	products.DELETE("/:id", h.Product.Delete, middleware.RequireAdmin())
 	products.POST("/import", h.Product.ImportExcel, middleware.RequireAdminOrEditor())
+	products.GET("/all", h.Product.GetAllProducts)
 
 	// QR Code 相關功能已移除
 
@@ -87,4 +88,15 @@ func RegisterGMMedRoutes(ctx context.Context, router RouterItf, singletonGroup *
 	audit := protected.Group("/audit")
 	audit.GET("", h.Audit.List)
 	audit.GET("/:id", h.Audit.GetByID)
+
+	// 序號管理
+	serials := protected.Group("/serials")
+	serials.GET("", h.Serial.Search)
+	serials.GET("/:id", h.Serial.GetByID)
+	serials.POST("", h.Serial.Create, middleware.RequireAdminOrEditor())
+	serials.PUT("/:id", h.Serial.Update, middleware.RequireAdminOrEditor())
+	serials.DELETE("/:id", h.Serial.Delete, middleware.RequireAdmin())
+	serials.POST("/import", h.Serial.BulkCreate, middleware.RequireAdminOrEditor())
+	serials.GET("/check-serial", h.Serial.CheckSerialExists)
+	serials.GET("/serials-with-product", h.Serial.GetSerialsWithProduct)
 }

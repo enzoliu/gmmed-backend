@@ -204,3 +204,18 @@ func (h *ProductHandler) ImportExcel(c echo.Context) error {
 func (h *ProductHandler) ExportExcel(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "產品匯出Excel端點"})
 }
+
+func (h *ProductHandler) GetAllProducts(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	products, err := h.service.GetAllProducts(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data": products,
+	})
+}

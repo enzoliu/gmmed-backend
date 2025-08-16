@@ -11,6 +11,7 @@ type Handlers struct {
 	Warranty *WarrantyHandler
 	Audit    *AuditHandler
 	Auth     *AuthHandler
+	Serial   *SerialHandler
 }
 
 // NewHandlers 建立新的處理器實例
@@ -21,5 +22,6 @@ func NewHandlers(services *services.Services) *Handlers {
 		Warranty: NewWarrantyHandler(services.Warranty),
 		Audit:    NewAuditHandler(services.Audit),
 		Auth:     NewAuthHandler(services.Auth),
+		Serial:   NewSerialHandler(services.Serial),
 	}
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stephenafamo/bob"
 	"github.com/stephenafamo/bob/dialect/psql"
-	"github.com/stephenafamo/bob/dialect/psql/dm"
 	"github.com/stephenafamo/bob/dialect/psql/im"
 	"github.com/stephenafamo/bob/dialect/psql/sm"
 	"github.com/stephenafamo/bob/dialect/psql/um"
@@ -199,22 +198,15 @@ func (r *WarrantyRepository) Update(ctx context.Context, warranty *models.Warran
 	return dbutil.ShouldExec(ctx, r.db, builder)
 }
 
-// Delete 刪除保固登記
+// Delete 軟性刪除保固登記
 func (r *WarrantyRepository) Delete(ctx context.Context, id string) error {
-	builder := psql.Delete(
-		dm.From("warranty_registrations"),
-		dm.Where(psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id))),
+	builder := psql.Update(
+		um.Table("warranty_registrations"),
+		um.SetCol("deleted_at").To("NOW()"),
+		um.Where(psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id))),
 	)
-	result, err := dbutil.Exec(ctx, r.db, builder)
-	if err != nil {
-		return err
-	}
 
-	if result.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-
-	return nil
+	return dbutil.ShouldExec(ctx, r.db, builder)
 }
 
 // UpdateEmailSent 更新信件發送狀態
@@ -326,6 +318,7 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 	// 如果Product ID 是null，表示是空白保固記錄，不應該被搜尋到
 	conditions = append(conditions,
 		psql.Quote("warranty_registrations", "product_id").IsNotNull(),
+		psql.Quote("warranty_registrations", "deleted_at").IsNull(),
 	)
 
 	builder := psql.Select(

@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stephenafamo/bob"
 	"github.com/stephenafamo/bob/dialect/psql"
-	"github.com/stephenafamo/bob/dialect/psql/dm"
 	"github.com/stephenafamo/bob/dialect/psql/im"
 	"github.com/stephenafamo/bob/dialect/psql/sm"
 	"github.com/stephenafamo/bob/dialect/psql/um"
@@ -137,22 +136,15 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	return nil
 }
 
-// Delete 刪除使用者
+// Delete 軟性刪除使用者
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	builder := psql.Delete(
-		dm.From("users"),
-		dm.Where(psql.Quote("users", "id").EQ(psql.Arg(id))),
+	builder := psql.Update(
+		um.Table("users"),
+		um.SetCol("deleted_at").To("NOW()"),
+		um.Where(psql.Quote("users", "id").EQ(psql.Arg(id))),
 	)
-	result, err := dbutil.Exec(ctx, r.db, builder)
-	if err != nil {
-		return err
-	}
 
-	if result.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-
-	return nil
+	return dbutil.ShouldExec(ctx, r.db, builder)
 }
 
 // Search 搜尋使用者
