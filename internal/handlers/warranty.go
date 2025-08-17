@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 
 	"breast-implant-warranty-system/internal/middleware"
@@ -14,13 +15,15 @@ import (
 
 // WarrantyHandler 保固處理器
 type WarrantyHandler struct {
-	service *services.WarrantyService
+	service       *services.WarrantyService
+	serialService *services.SerialService
 }
 
 // NewWarrantyHandler 建立新的保固處理器
-func NewWarrantyHandler(service *services.WarrantyService) *WarrantyHandler {
+func NewWarrantyHandler(service *services.WarrantyService, serialService *services.SerialService) *WarrantyHandler {
 	return &WarrantyHandler{
-		service: service,
+		service:       service,
+		serialService: serialService,
 	}
 }
 
@@ -227,10 +230,24 @@ func (h *WarrantyHandler) UpdateExpiredWarranties(c echo.Context) error {
 func (h *WarrantyHandler) CheckSerialNumber(c echo.Context) error {
 	ctx := c.Request().Context()
 	serialNumber := c.QueryParam("serial_number")
+	warrantyID := c.QueryParam("warranty_id")
 	if serialNumber == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "必須提供產品序號資訊",
 		})
+	}
+	// 防止有心人士直接呼叫此API，所有錯誤都回傳403
+	if warrantyID == "" {
+		return c.NoContent(http.StatusForbidden)
+	}
+	canEdit, err := h.service.CheckWarrantyCanEdit(ctx, warrantyID)
+	if err != nil {
+		// 在伺服器端印出錯誤, 使用slog
+		slog.Error("CheckSerialNumber - CheckWarrantyCanEdit", "error", err)
+		return c.NoContent(http.StatusForbidden)
+	}
+	if !canEdit {
+		return c.NoContent(http.StatusForbidden)
 	}
 
 	exists, err := h.service.CheckSerialNumberExists(ctx, serialNumber)
@@ -240,17 +257,27 @@ func (h *WarrantyHandler) CheckSerialNumber(c echo.Context) error {
 		})
 	}
 
-	response := models.SerialNumberCheckResponse{
-		Exists: exists,
+	// 呼叫serial service 的 CheckSerialExists
+	valid, err := h.serialService.CheckSerialExists(ctx, serialNumber)
+	if err != nil {
+		// 在伺服器端印出錯誤, 使用slog
+		slog.Error("CheckSerialNumber - CheckSerialExists", "error", err)
+		return c.NoContent(http.StatusForbidden)
+	}
+	if !valid {
+		slog.Error("CheckSerialNumber - CheckSerialExists", "error", "序號不存在")
+		return c.NoContent(http.StatusForbidden)
 	}
 
 	if exists {
-		response.Message = "產品序號已註冊"
-	} else {
-		response.Message = "產品序號可用"
+		response := models.SerialNumberCheckResponse{
+			Exists:  exists,
+			Message: "產品序號已註冊",
+		}
+		return c.JSON(http.StatusConflict, response)
 	}
 
-	return c.JSON(http.StatusOK, response)
+	return c.NoContent(http.StatusOK)
 }
 
 // BatchCreate 批次創建空白保固記錄（管理員專用）
@@ -355,6 +382,11 @@ func (h *WarrantyHandler) RegisterByPatient(c echo.Context) error {
 		if err.Error() == "two serial numbers cannot be the same" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "兩個序號不能相同",
+			})
+		}
+		if err.Error() == "product serial number not valid" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "產品序號無效",
 			})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{

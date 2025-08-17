@@ -88,4 +88,3 @@ type SerialStatsResponse struct {
 	UnassignedSerials int64 `json:"unassigned_serials"`
 	TotalProducts     int64 `json:"total_products"`
 }
-

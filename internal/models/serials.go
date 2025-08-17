@@ -19,6 +19,7 @@ type Serial struct {
 
 // SerialImportItem 用於大量匯入的序號項目
 type SerialImportItem struct {
+	Index            int    `json:"index"`
 	ProductID        string `json:"product_id" validate:"required,uuid"`
 	SerialNumber     string `json:"serial_number" validate:"required,max=20"`
 	FullSerialNumber string `json:"full_serial_number" validate:"required,max=100"`
@@ -36,6 +37,7 @@ type SerialSearchRequest struct {
 	FullSerialNumber null.String `query:"full_serial_number"`
 	ProductID        null.String `query:"product_id"`
 	IsUsedByWarranty null.Bool   `query:"is_used_by_warranty"`
+	SearchDeleted    null.Bool   `query:"search_deleted"`
 	entity.Pagination
 }
 

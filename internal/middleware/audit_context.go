@@ -16,7 +16,7 @@ func AuditContext() echo.MiddlewareFunc {
 				UserAgent: &[]string{c.Request().UserAgent()}[0],
 			}
 
-			// 獲取用戶信息（如果已認證）
+			// 獲取用戶資訊（如果已認證）
 			if userID := c.Get("user_id"); userID != nil {
 				if uidStr, ok := userID.(string); ok {
 					auditCtx.UserID = &uidStr

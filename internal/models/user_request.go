@@ -47,9 +47,10 @@ type UserListResponse struct {
 
 // UserSearchRequest 使用者搜尋請求
 type UserSearchRequest struct {
-	Username null.String `query:"username"`
-	Email    null.String `query:"email"`
-	Role     null.String `query:"role"`
-	IsActive null.Bool   `query:"is_active"`
+	Username      null.String `query:"username"`
+	Email         null.String `query:"email"`
+	Role          null.String `query:"role"`
+	IsActive      null.Bool   `query:"is_active"`
+	SearchDeleted null.Bool   `query:"search_deleted"`
 	entity.Pagination
 }

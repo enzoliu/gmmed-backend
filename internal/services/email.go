@@ -43,7 +43,7 @@ func NewEmailService(cfg MailgunConfigItf) *EmailService {
 	}
 }
 
-// WarrantyConfirmationData 保固確認信件數據
+// WarrantyConfirmationData 保固確認信件資料
 type WarrantyConfirmationData struct {
 	PatientName        string
 	PatientSurname     string
@@ -88,7 +88,7 @@ func (s *EmailService) SendWarrantyConfirmation(warranty *models.WarrantyRegistr
 		return fmt.Errorf("product serial number is nil")
 	}
 
-	// 準備信件數據
+	// 準備信件資料
 	data := s.prepareWarrantyData(warranty)
 
 	// 生成信件內容
@@ -195,7 +195,7 @@ func (s *EmailService) SendNotificationToCompany(warranty *models.WarrantyRegist
 	return nil
 }
 
-// prepareWarrantyData 準備信件數據
+// prepareWarrantyData 準備信件資料
 func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration) *WarrantyConfirmationData {
 	// 提取姓氏（假設姓氏是名字的第一個字）
 	surname := ""

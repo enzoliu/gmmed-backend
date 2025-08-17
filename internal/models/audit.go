@@ -60,7 +60,7 @@ const (
 	AuditTableAuth                  AuditTable = "auth"
 )
 
-// AuditContext 審計上下文，包含用戶和請求信息
+// AuditContext 審計上下文，包含用戶和請求資訊
 type AuditContext struct {
 	UserID    *string `json:"user_id"`
 	Username  *string `json:"username"`

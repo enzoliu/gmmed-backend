@@ -113,7 +113,12 @@ func (r *WarrantyRepository) GetByID(ctx context.Context, id string) (*models.Wa
 		sm.LeftJoin("products").On(
 			psql.Raw("warranty_registrations.product_id = products.id"),
 		),
-		sm.Where(psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id))),
+		sm.Where(
+			psql.And(
+				psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id)),
+				psql.Quote("warranty_registrations", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	warranty, err := dbutil.GetOne[models.WarrantyRegistration](ctx, r.db, builder)
@@ -163,9 +168,12 @@ func (r *WarrantyRepository) GetByProductSerialNumber(ctx context.Context, seria
 		),
 		sm.From("warranty_registrations"),
 		sm.Where(
-			psql.Or(
-				psql.Quote("warranty_registrations", "product_serial_number").EQ(psql.Arg(serialNumber)),
-				psql.Quote("warranty_registrations", "serial_number_2").EQ(psql.Arg(serialNumber)),
+			psql.And(
+				psql.Or(
+					psql.Quote("warranty_registrations", "product_serial_number").EQ(psql.Arg(serialNumber)),
+					psql.Quote("warranty_registrations", "serial_number_2").EQ(psql.Arg(serialNumber)),
+				),
+				psql.Quote("warranty_registrations", "deleted_at").IsNull(),
 			),
 		),
 		sm.Limit(1),
@@ -315,11 +323,16 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 			psql.Quote("warranty_registrations", "surgery_date").LTE(psql.Arg(parsedEndDate)),
 		)
 	}
+
+	// 預設不搜尋已刪除的保固記錄
+	deleteCondition := psql.Quote("warranty_registrations", "deleted_at").IsNull()
+	if req.SearchDeleted.Valid && req.SearchDeleted.Bool {
+		deleteCondition = psql.Quote("warranty_registrations", "deleted_at").IsNotNull()
+	}
+	conditions = append(conditions, deleteCondition)
+
 	// 如果Product ID 是null，表示是空白保固記錄，不應該被搜尋到
-	conditions = append(conditions,
-		psql.Quote("warranty_registrations", "product_id").IsNotNull(),
-		psql.Quote("warranty_registrations", "deleted_at").IsNull(),
-	)
+	conditions = append(conditions, psql.Quote("warranty_registrations", "product_id").IsNotNull())
 
 	builder := psql.Select(
 		sm.Columns(

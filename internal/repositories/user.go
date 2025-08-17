@@ -63,7 +63,12 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*models.User, 
 			"updated_at",
 		),
 		sm.From("users"),
-		sm.Where(psql.Quote("users", "id").EQ(psql.Arg(id))),
+		sm.Where(
+			psql.And(
+				psql.Quote("users", "id").EQ(psql.Arg(id)),
+				psql.Quote("users", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 
@@ -85,7 +90,12 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 			"updated_at",
 		),
 		sm.From("users"),
-		sm.Where(psql.Quote("users", "username").EQ(psql.Arg(username))),
+		sm.Where(
+			psql.And(
+				psql.Quote("users", "username").EQ(psql.Arg(username)),
+				psql.Quote("users", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.User](ctx, r.db, builder)
@@ -106,7 +116,12 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.
 			"updated_at",
 		),
 		sm.From("users"),
-		sm.Where(psql.Quote("users", "email").EQ(psql.Arg(email))),
+		sm.Where(
+			psql.And(
+				psql.Quote("users", "email").EQ(psql.Arg(email)),
+				psql.Quote("users", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.User](ctx, r.db, builder)
@@ -170,6 +185,13 @@ func (r *UserRepository) Search(ctx context.Context, req *models.UserSearchReque
 			psql.Quote("users", "is_active").EQ(psql.Arg(req.IsActive.Bool)),
 		)
 	}
+
+	// 預設不搜尋已刪除的使用者
+	deleteCondition := psql.Quote("users", "deleted_at").IsNull()
+	if req.SearchDeleted.Valid && req.SearchDeleted.Bool {
+		deleteCondition = psql.Quote("users", "deleted_at").IsNotNull()
+	}
+	conditions = append(conditions, deleteCondition)
 
 	builder := psql.Select(
 		sm.Columns(

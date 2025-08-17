@@ -357,7 +357,7 @@ func (s *ProductService) recordAuditLog(ctx context.Context, auditCtx *models.Au
 		UserAgent: nil,
 	}
 
-	// 如果有 audit context，使用其中的信息
+	// 如果有 audit context，使用其中的資訊
 	if auditCtx != nil {
 		auditReq.UserID = auditCtx.UserID
 		auditReq.IPAddress = auditCtx.IPAddress

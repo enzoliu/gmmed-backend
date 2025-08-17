@@ -46,6 +46,7 @@ type WarrantySearchRequest struct {
 	Status        null.String `query:"status"`
 	StartDate     null.String `query:"start_date"` // YYYY-MM-DD
 	EndDate       null.String `query:"end_date"`   // YYYY-MM-DD
+	SearchDeleted null.Bool   `query:"search_deleted"`
 	entity.Pagination
 }
 
@@ -75,6 +76,7 @@ type WarrantyStatusResponse struct {
 // PatientRegistrationRequest 患者填寫保固請求
 type PatientRegistrationRequest struct {
 	PatientName          string      `json:"patient_name"`
+	IsLocalIdentity      bool        `json:"is_local_identity"`
 	PatientID            string      `json:"patient_id"`
 	PatientBirthDate     GoTimeSucks `json:"patient_birth_date"`
 	PatientPhone         string      `json:"patient_phone"`
@@ -97,8 +99,13 @@ func (req *PatientRegistrationRequest) Validate() error {
 		validation.Field(
 			&req.PatientID,
 			validation.Required.Error("患者身分證號是必填項"),
-			validation.Length(10, 10).Error("身分證號或護照號碼必須為10位數"),
-			validation.By(validator.IsValidIdentity),
+			validation.By(func(value interface{}) error {
+				if req.IsLocalIdentity {
+					return validator.IsValidTaiwanID(value)
+				}
+				// 不檢查護照號碼
+				return nil
+			}),
 		),
 		validation.Field(
 			&req.PatientBirthDate,

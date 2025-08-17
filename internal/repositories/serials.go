@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"breast-implant-warranty-system/internal/entity"
 	"breast-implant-warranty-system/internal/models"
@@ -58,7 +57,10 @@ func (r *SerialRepository) GetByID(ctx context.Context, id string) (*models.Seri
 			"updated_at",
 		),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "id").EQ(psql.Arg(id))),
+		sm.Where(psql.And(
+			psql.Quote("serials", "id").EQ(psql.Arg(id)),
+			psql.Quote("serials", "deleted_at").IsNull(),
+		)),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
@@ -76,7 +78,12 @@ func (r *SerialRepository) GetBySerialNumber(ctx context.Context, serialNumber s
 			"updated_at",
 		),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber))),
+		sm.Where(
+			psql.And(
+				psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber)),
+				psql.Quote("serials", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
@@ -94,7 +101,12 @@ func (r *SerialRepository) GetByFullSerialNumber(ctx context.Context, fullSerial
 			"updated_at",
 		),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber))),
+		sm.Where(
+			psql.And(
+				psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber)),
+				psql.Quote("serials", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
@@ -103,21 +115,29 @@ func (r *SerialRepository) GetByFullSerialNumber(ctx context.Context, fullSerial
 // ExistsBySerialNumber 檢查序號是否存在
 func (r *SerialRepository) ExistsBySerialNumber(ctx context.Context, serialNumber string) (bool, error) {
 	builder := psql.Select(
-		sm.Columns("1"),
+		sm.Columns("id", "serial_number", "full_serial_number", "product_id", "created_at", "updated_at"),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber))),
+		sm.Where(
+			psql.And(
+				psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber)),
+				psql.Quote("serials", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 
-	exists, err := dbutil.GetOne[int](ctx, r.db, builder)
+	exists, err := dbutil.GetOne[models.Serial](ctx, r.db, builder)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return false, nil
 		}
 		return false, err
 	}
+	if exists == nil {
+		return false, nil
+	}
 
-	return exists != nil, nil
+	return exists.ID != "", nil
 }
 
 // ExistsByFullSerialNumber 檢查完整序號是否存在
@@ -125,7 +145,12 @@ func (r *SerialRepository) ExistsByFullSerialNumber(ctx context.Context, fullSer
 	builder := psql.Select(
 		sm.Columns("1"),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber))),
+		sm.Where(
+			psql.And(
+				psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber)),
+				psql.Quote("serials", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 
@@ -182,76 +207,84 @@ func (r *SerialRepository) Delete(ctx context.Context, id string) error {
 }
 
 // BulkCreate 大量創建序號
-func (r *SerialRepository) BulkCreate(ctx context.Context, req *models.SerialBulkImportRequest) (*models.SerialBulkImportResponse, error) {
+func (r *SerialRepository) BulkCreate(ctx context.Context, req *models.SerialBulkImportRequest, response *models.SerialBulkImportResponse) error {
 	if len(req.Serials) == 0 {
-		return &models.SerialBulkImportResponse{
-			SuccessCount: 0,
-			FailedCount:  0,
-			FailedItems:  []models.SerialImportErrorItem{},
-		}, nil
+		return nil
 	}
 
-	response := &models.SerialBulkImportResponse{
-		SuccessCount: 0,
-		FailedCount:  0,
-		FailedItems:  []models.SerialImportErrorItem{},
+	// 移除已經存在的序號
+	existingSerials, err := r.ListDuplicateSerials(ctx, req)
+	if err != nil {
+		return fmt.Errorf("處理失敗，原因: %s", err.Error())
+	}
+	failedCnt := len(response.FailedItems)
+	keepSerials := []models.SerialImportItem{}
+	for _, reqSerial := range req.Serials {
+		exist := false
+		for _, existingSerial := range existingSerials {
+			if reqSerial.SerialNumber == existingSerial.SerialNumber || reqSerial.FullSerialNumber == existingSerial.FullSerialNumber {
+				response.FailedItems = append(response.FailedItems, models.SerialImportErrorItem{
+					Index:            reqSerial.Index,
+					ProductID:        reqSerial.ProductID,
+					SerialNumber:     reqSerial.SerialNumber,
+					FullSerialNumber: reqSerial.FullSerialNumber,
+					Error:            "該序號已存在。",
+				})
+				failedCnt++
+				exist = true
+				break
+			}
+		}
+		if !exist {
+			keepSerials = append(keepSerials, reqSerial)
+		}
 	}
 
 	// 開始事務
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("處理失敗，原因: %s", err.Error())
 	}
 	defer tx.Rollback(ctx)
 
-	// 準備批量插入
-	builder := psql.Insert(
-		im.Into("serials",
-			"serial_number",
-			"full_serial_number",
-			"product_id",
-		),
-	)
-
 	// 添加所有值
-	values := make([]bob.Expression, len(req.Serials))
-	for i, serial := range req.Serials {
-		values[i] = psql.Arg(
-			serial.SerialNumber,
-			serial.FullSerialNumber,
-			serial.ProductID,
+	for _, serial := range keepSerials {
+		// 準備批量插入
+		builder := psql.Insert(
+			im.Into("serials",
+				"serial_number",
+				"full_serial_number",
+				"product_id",
+			),
+			im.Values(psql.Arg(
+				serial.SerialNumber,
+				serial.FullSerialNumber,
+				serial.ProductID,
+			)),
 		)
-	}
-	builder.Apply(im.Values(values...))
-
-	// 執行批量插入
-	_, err = dbutil.Exec(ctx, tx, builder)
-	if err != nil {
-		// 檢查是否為唯一性約束錯誤
-		if isUniqueConstraintError(err) {
-
+		// 執行批量插入
+		_, err = dbutil.Exec(ctx, tx, builder)
+		if err != nil {
+			response.FailedItems = append(response.FailedItems, models.SerialImportErrorItem{
+				Index:            serial.Index,
+				ProductID:        serial.ProductID,
+				SerialNumber:     serial.SerialNumber,
+				FullSerialNumber: serial.FullSerialNumber,
+				Error:            err.Error(),
+			})
+			failedCnt++
 		}
-		return nil, fmt.Errorf("failed to bulk insert serials: %w", err)
+	}
+	// 提交事務
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("處理失敗，原因: %s", err.Error())
 	}
 
 	// 全部成功
-	response.SuccessCount = int64(len(req.Serials))
+	response.SuccessCount = int64(len(keepSerials))
+	response.FailedCount += int64(len(existingSerials))
 
-	// 提交事務
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return response, nil
-}
-
-// isUniqueConstraintError 檢查是否為唯一性約束錯誤
-func isUniqueConstraintError(err error) bool {
-	// 檢查 PostgreSQL 的唯一性約束錯誤
-	// 23505 是 PostgreSQL 的唯一性約束違反錯誤碼
-	return err != nil && (strings.Contains(err.Error(), "23505") ||
-		strings.Contains(err.Error(), "duplicate key") ||
-		strings.Contains(err.Error(), "unique constraint"))
+	return nil
 }
 
 // ListDuplicateSerials 列出req中已經存在於資料庫中的序號
@@ -375,6 +408,13 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 		)
 	}
 
+	// 預設不搜尋已刪除的序號
+	deleteCondition := psql.Quote("serials", "deleted_at").IsNull()
+	if req.SearchDeleted.Valid && req.SearchDeleted.Bool {
+		deleteCondition = psql.Quote("serials", "deleted_at").IsNotNull()
+	}
+	conditions = append(conditions, deleteCondition)
+
 	builder := psql.Select(
 		sm.Columns(
 			"id",
@@ -446,7 +486,12 @@ func (r *SerialRepository) GetByProductID(ctx context.Context, productID string)
 			"updated_at",
 		),
 		sm.From("serials"),
-		sm.Where(psql.Quote("serials", "product_id").EQ(psql.Arg(productID))),
+		sm.Where(
+			psql.And(
+				psql.Quote("serials", "product_id").EQ(psql.Arg(productID)),
+				psql.Quote("serials", "deleted_at").IsNull(),
+			),
+		),
 		sm.OrderBy(psql.Quote("serials", "created_at")).Desc(),
 	)
 	return dbutil.GetAll[models.Serial](ctx, r.db, builder)
@@ -476,6 +521,13 @@ func (r *SerialRepository) GetSerialsWithProduct(ctx context.Context, req *model
 			psql.Quote("serials", "product_id").EQ(psql.Arg(req.ProductID.String)),
 		)
 	}
+
+	// 預設不搜尋已刪除的序號
+	deleteCondition := psql.Quote("serials", "deleted_at").IsNull()
+	if req.SearchDeleted.Valid && req.SearchDeleted.Bool {
+		deleteCondition = psql.Quote("serials", "deleted_at").IsNotNull()
+	}
+	conditions = append(conditions, deleteCondition)
 
 	builder := psql.Select(
 		sm.Columns(

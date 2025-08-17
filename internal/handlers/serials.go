@@ -232,7 +232,7 @@ func (h *SerialHandler) BulkCreate(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusCreated, response)
+	return c.JSON(http.StatusMultiStatus, response)
 }
 
 // CheckSerialExists 檢查序號是否存在

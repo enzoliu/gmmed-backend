@@ -15,6 +15,7 @@ type ProductSearchRequest struct {
 	ModelNumber   null.String `query:"model_number"`
 	Size          null.String `query:"size"`
 	WarrantyYears null.Int    `query:"warranty_years"`
+	SearchDeleted null.Bool   `query:"search_deleted"`
 	entity.Pagination
 }
 

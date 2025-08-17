@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"breast-implant-warranty-system/internal/entity"
 	"breast-implant-warranty-system/internal/models"
@@ -298,43 +299,76 @@ func (s *SerialService) Search(ctx context.Context, req *models.SerialSearchRequ
 
 // BulkCreate 大量建立序號
 func (s *SerialService) BulkCreate(ctx context.Context, req *models.SerialBulkImportRequest, auditCtx *models.AuditContext) (*models.SerialBulkImportResponse, error) {
+	response := &models.SerialBulkImportResponse{
+		SuccessCount: 0,
+		FailedCount:  0,
+		FailedItems:  []models.SerialImportErrorItem{},
+	}
+
 	if len(req.Serials) == 0 {
-		return &models.SerialBulkImportResponse{
-			SuccessCount: 0,
-			FailedCount:  0,
-			FailedItems:  []models.SerialImportErrorItem{},
-		}, nil
+		return response, nil
 	}
 
 	// 驗證每個序號項目
-	for i, serial := range req.Serials {
+	validSerials := []models.SerialImportItem{}
+	for _, serial := range req.Serials {
 		if err := s.validateSerialImportItem(&serial); err != nil {
-			return nil, fmt.Errorf("validation failed for serial %d: %w", i+1, err)
+			response.FailedItems = append(response.FailedItems, models.SerialImportErrorItem{
+				Index:            serial.Index,
+				ProductID:        serial.ProductID,
+				SerialNumber:     serial.SerialNumber,
+				FullSerialNumber: serial.FullSerialNumber,
+				Error:            err.Error(),
+			})
+			response.FailedCount++
+		} else {
+			validSerials = append(validSerials, serial)
 		}
 	}
 
 	// 檢查產品是否存在
-	productIDs := make([]string, 0)
-	for _, serial := range req.Serials {
+	productIDsMap := map[string]struct{}{}
+	for _, serial := range validSerials {
 		if serial.ProductID != "" {
-			productIDs = append(productIDs, serial.ProductID)
+			productIDsMap[serial.ProductID] = struct{}{}
 		}
 	}
+	productIDs := make([]string, 0, len(productIDsMap))
+	for k := range productIDsMap {
+		productIDs = append(productIDs, k)
+	}
 
+	validSerials2 := []models.SerialImportItem{}
 	if len(productIDs) > 0 {
-		nonExistingProductIDs, err := s.productRepo.CheckManyModelNumberExists(ctx, productIDs)
+		nonExistingProductIDs, err := s.productRepo.CheckManyProductIDExists(ctx, productIDs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check product existence: %w", err)
+			return nil, fmt.Errorf("無法檢查產品，原因: %s", err.Error())
 		}
 		if len(nonExistingProductIDs) > 0 {
-			return nil, fmt.Errorf("products not found: %v", nonExistingProductIDs)
+			for _, serial := range validSerials {
+				if slices.Contains(nonExistingProductIDs, serial.ProductID) {
+					response.FailedItems = append(response.FailedItems, models.SerialImportErrorItem{
+						Index:            serial.Index,
+						ProductID:        serial.ProductID,
+						SerialNumber:     serial.SerialNumber,
+						FullSerialNumber: serial.FullSerialNumber,
+						Error:            "產品不存在。",
+					})
+					response.FailedCount++
+				} else {
+					validSerials2 = append(validSerials2, serial)
+				}
+			}
+		} else {
+			validSerials2 = validSerials
 		}
 	}
+	req.Serials = validSerials2
 
 	// 執行大量建立
-	response, err := s.serialRepo.BulkCreate(ctx, req)
+	err := s.serialRepo.BulkCreate(ctx, req, response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to bulk create serials: %w", err)
+		return nil, err
 	}
 
 	// 記錄審計日誌
@@ -512,7 +546,7 @@ func (s *SerialService) recordAuditLog(ctx context.Context, auditCtx *models.Aud
 		UserAgent: nil,
 	}
 
-	// 如果有 audit context，使用其中的信息
+	// 如果有 audit context，使用其中的資訊
 	if auditCtx != nil {
 		auditReq.UserID = auditCtx.UserID
 		auditReq.IPAddress = auditCtx.IPAddress

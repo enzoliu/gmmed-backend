@@ -70,7 +70,12 @@ func (r *ProductRepository) GetByID(ctx context.Context, id string) (*models.Pro
 			"updated_at",
 		),
 		sm.From("products"),
-		sm.Where(psql.Quote("products", "id").EQ(psql.Arg(id))),
+		sm.Where(
+			psql.And(
+				psql.Quote("products", "id").EQ(psql.Arg(id)),
+				psql.Quote("products", "deleted_at").IsNull(),
+			),
+		),
 		sm.Limit(1),
 	)
 	return dbutil.GetOne[models.Product](ctx, r.db, builder)
@@ -106,6 +111,14 @@ func (r *ProductRepository) GetOneByCondition(ctx context.Context, req *models.P
 			psql.Quote("products", "size").EQ(psql.Arg(req.Size.String)),
 		)
 	}
+
+	// 預設不搜尋已刪除的產品
+	deleteCondition := psql.Quote("products", "deleted_at").IsNull()
+	if req.SearchDeleted.Valid && req.SearchDeleted.Bool {
+		deleteCondition = psql.Quote("products", "deleted_at").IsNotNull()
+	}
+	conditions = append(conditions, deleteCondition)
+
 	builder := psql.Select(
 		sm.Columns(
 			"id",
@@ -146,6 +159,7 @@ func (r *ProductRepository) GetByModelNumber(ctx context.Context, modelNumber st
 		sm.Where(psql.And(
 			psql.Quote("products", "model_number").EQ(psql.Arg(modelNumber)),
 			psql.Quote("products", "is_active").EQ(psql.Arg(true)),
+			psql.Quote("products", "deleted_at").IsNull(),
 		)),
 		sm.Limit(1),
 	)
@@ -164,6 +178,9 @@ func (r *ProductRepository) IsDuplicate(ctx context.Context, product *models.Pro
 	if product.ID != "" {
 		conditions = append(conditions, psql.Quote("products", "id").NE(psql.Arg(product.ID)))
 	}
+	conditions = append(conditions,
+		psql.Quote("products", "deleted_at").IsNull(),
+	)
 
 	builder := psql.Select(
 		sm.Columns(
@@ -312,7 +329,12 @@ func (r *ProductRepository) GetAllBrands(ctx context.Context) ([]string, error) 
 	builder := psql.Select(
 		sm.Columns("products.brand"),
 		sm.From("products"),
-		sm.Where(psql.Quote("products", "is_active").EQ(psql.Arg(true))),
+		sm.Where(
+			psql.And(
+				psql.Quote("products", "is_active").EQ(psql.Arg(true)),
+				psql.Quote("products", "deleted_at").IsNull(),
+			),
+		),
 		sm.GroupBy(psql.Quote("products", "brand")),
 	)
 	return dbutil.GetAllColumns[string](ctx, r.db, builder)
@@ -325,7 +347,7 @@ func (r *ProductRepository) GetAllTypes(ctx context.Context, req *models.Product
 		constraints = append(constraints, psql.Quote("products", "brand").EQ(psql.Arg(req.Brand.String)))
 	}
 	constraints = append(constraints, psql.Quote("products", "is_active").EQ(psql.Arg(true)))
-
+	constraints = append(constraints, psql.Quote("products", "deleted_at").IsNull())
 	builder := psql.Select(
 		sm.Columns("products.type"),
 		sm.From("products"),
@@ -348,6 +370,7 @@ func (r *ProductRepository) GetAllModelNumbers(ctx context.Context, req *models.
 		constraints = append(constraints, psql.Quote("products", "type").EQ(psql.Arg(req.Type.String)))
 	}
 	constraints = append(constraints, psql.Quote("products", "is_active").EQ(psql.Arg(true)))
+	constraints = append(constraints, psql.Quote("products", "deleted_at").IsNull())
 	builder := psql.Select(
 		sm.Columns("products.model_number"),
 		sm.From("products"),
@@ -373,6 +396,7 @@ func (r *ProductRepository) GetAllSizes(ctx context.Context, req *models.Product
 		constraints = append(constraints, psql.Quote("products", "model_number").EQ(psql.Arg(req.ModelNumber.String)))
 	}
 	constraints = append(constraints, psql.Quote("products", "is_active").EQ(psql.Arg(true)))
+	constraints = append(constraints, psql.Quote("products", "deleted_at").IsNull())
 	builder := psql.Select(
 		sm.Columns("products.size"),
 		sm.From("products"),
@@ -400,7 +424,12 @@ func (r *ProductRepository) GetMetadataAll(ctx context.Context) (*models.Product
 			"updated_at",
 		),
 		sm.From("products"),
-		sm.Where(psql.Quote("products", "is_active").EQ(psql.Arg(true))),
+		sm.Where(
+			psql.And(
+				psql.Quote("products", "is_active").EQ(psql.Arg(true)),
+				psql.Quote("products", "deleted_at").IsNull(),
+			),
+		),
 	)
 	res, err := dbutil.GetAll[models.Product](ctx, r.db, builder)
 	if err != nil {
@@ -441,27 +470,27 @@ func (r *ProductRepository) GetAllProducts(ctx context.Context) ([]*models.Produ
 	return dbutil.GetAll[models.Product](ctx, r.db, builder)
 }
 
-// CheckManyModelNumberExists 檢查多個型號是否存在，只返回不存在的ids
-func (r *ProductRepository) CheckManyModelNumberExists(ctx context.Context, modelNumbers []string) ([]string, error) {
-	if len(modelNumbers) == 0 {
+// CheckManyProductIDExists 檢查多個產品ID是否存在，只返回不存在的ids
+func (r *ProductRepository) CheckManyProductIDExists(ctx context.Context, productIDs []string) ([]string, error) {
+	if len(productIDs) == 0 {
 		return []string{}, nil
 	}
 
 	const batchSize = 100 // 每批處理 100 個型號
 
 	// 分批處理，使用真正的 NOT IN 查詢
-	nonExistingModelNumbers := make([]string, 0)
+	nonExistingProductIDs := make([]string, 0)
 
-	for i := 0; i < len(modelNumbers); i += batchSize {
+	for i := 0; i < len(productIDs); i += batchSize {
 		end := i + batchSize
-		if end > len(modelNumbers) {
-			end = len(modelNumbers)
+		if end > len(productIDs) {
+			end = len(productIDs)
 		}
 
-		batch := modelNumbers[i:end]
+		batch := productIDs[i:end]
 		batchArgs := make([]any, 0, len(batch))
-		for _, modelNumber := range batch {
-			batchArgs = append(batchArgs, modelNumber)
+		for _, productID := range batch {
+			batchArgs = append(batchArgs, productID)
 		}
 
 		if len(batchArgs) > 0 {
@@ -472,16 +501,16 @@ func (r *ProductRepository) CheckManyModelNumberExists(ctx context.Context, mode
 			valuesClause := "VALUES "
 			placeholders := make([]string, len(batch))
 			for j := range batch {
-				placeholders[j] = fmt.Sprintf("($%d)", j+1)
+				placeholders[j] = fmt.Sprintf("($%d::uuid)", j+1)
 			}
 			valuesClause += strings.Join(placeholders, ", ")
 
 			// 使用 LEFT JOIN + IS NULL 查詢
 			rawSQL := fmt.Sprintf(`
-				SELECT m.model_number 
-				FROM (%s) AS m(model_number)
-				LEFT JOIN products p ON m.model_number = p.model_number
-				WHERE p.model_number IS NULL
+				SELECT m.id 
+				FROM (%s) AS m(id)
+				LEFT JOIN products p ON m.id = p.id
+				WHERE p.id IS NULL
 			`, valuesClause)
 
 			// 執行查詢
@@ -493,11 +522,11 @@ func (r *ProductRepository) CheckManyModelNumberExists(ctx context.Context, mode
 
 			// 讀取結果
 			for rows.Next() {
-				var modelNumber string
-				if err := rows.Scan(&modelNumber); err != nil {
+				var productID string
+				if err := rows.Scan(&productID); err != nil {
 					return nil, fmt.Errorf("failed to scan model number: %w", err)
 				}
-				nonExistingModelNumbers = append(nonExistingModelNumbers, modelNumber)
+				nonExistingProductIDs = append(nonExistingProductIDs, productID)
 			}
 
 			if err := rows.Err(); err != nil {
@@ -506,5 +535,5 @@ func (r *ProductRepository) CheckManyModelNumberExists(ctx context.Context, mode
 		}
 	}
 
-	return nonExistingModelNumbers, nil
+	return nonExistingProductIDs, nil
 }

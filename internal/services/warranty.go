@@ -30,6 +30,7 @@ type WarrantyService struct {
 	cfg          WarrantyRouteConfigItf
 	warrantyRepo *repositories.WarrantyRepository
 	productRepo  *repositories.ProductRepository
+	serialRepo   *repositories.SerialRepository
 	emailService *EmailService
 	auditService *AuditService
 }
@@ -41,6 +42,7 @@ func NewWarrantyService(db dbutil.PgxClientItf, cfg WarrantyRouteConfigItf) *War
 		cfg:          cfg,
 		warrantyRepo: repositories.NewWarrantyRepository(db, cfg.EncryptionKey()),
 		productRepo:  repositories.NewProductRepository(db),
+		serialRepo:   repositories.NewSerialRepository(db),
 		emailService: NewEmailService(cfg),
 		auditService: NewAuditService(db),
 	}
@@ -369,7 +371,7 @@ func (s *WarrantyService) recordAuditLog(ctx context.Context, auditCtx *models.A
 		UserAgent: nil,
 	}
 
-	// 如果有 audit context，使用其中的信息
+	// 如果有 audit context，使用其中的資訊
 	if auditCtx != nil {
 		auditReq.UserID = auditCtx.UserID
 		auditReq.IPAddress = auditCtx.IPAddress
@@ -464,6 +466,13 @@ func (s *WarrantyService) RegisterByPatient(ctx context.Context, id string, req 
 	}
 	if exists {
 		return nil, errors.New("product serial number already registered")
+	}
+	serial, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
+	if err != nil {
+		return nil, err
+	}
+	if !serial {
+		return nil, errors.New("product serial number not valid")
 	}
 
 	// 如果有第二個序號，也要檢查

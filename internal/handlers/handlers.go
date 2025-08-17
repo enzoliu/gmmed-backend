@@ -19,7 +19,7 @@ func NewHandlers(services *services.Services) *Handlers {
 	return &Handlers{
 		User:     NewUserHandler(services.User),
 		Product:  NewProductHandler(services.Product),
-		Warranty: NewWarrantyHandler(services.Warranty),
+		Warranty: NewWarrantyHandler(services.Warranty, services.Serial),
 		Audit:    NewAuditHandler(services.Audit),
 		Auth:     NewAuthHandler(services.Auth),
 		Serial:   NewSerialHandler(services.Serial),
