@@ -211,9 +211,15 @@ func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration
 
 	// 檢查是否為終身保固
 	isLifetimeWarranty := false
-	if warranty.NullableProduct.WarrantyYears.Valid && warranty.NullableProduct.WarrantyYears.Int64 == 0 {
-		isLifetimeWarranty = true
+	if warranty.NullableProduct.WarrantyYears.Valid && warranty.NullableProduct.WarrantyYears.Int64 == -1 {
+		// 終身保固
 		warrantyEndDate = "終身保固"
+	} else if warranty.NullableProduct.WarrantyYears.Int64 == 0 {
+		// 無保固
+		warrantyEndDate = "無保固"
+	} else {
+		// 有期限保固
+		warrantyEndDate = warranty.WarrantyEndDate.Time.Format("2006-01-02")
 	}
 
 	// 處理第二個序號

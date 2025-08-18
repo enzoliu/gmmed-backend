@@ -198,10 +198,14 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	if warranty.NullableProduct.Brand.Valid {
 		// 保固起始日期設為手術日期（確保滿足約束 surgery_date <= warranty_start_date）
 		warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate)
-		// 如果 warranty_years 為 0，表示終身保固
-		if warranty.NullableProduct.WarrantyYears.Int64 == 0 {
+		// 如果 warranty_years 為 -1，表示終身保固
+		switch warranty.NullableProduct.WarrantyYears.Int64 {
+		case -1:
 			warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-		} else {
+		case 0:
+			// 無保固 - 設定為手術當天結束
+			warranty.WarrantyEndDate = warranty.WarrantyStartDate
+		default:
 			warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.AddDate(int(warranty.NullableProduct.WarrantyYears.Int64), 0, 0))
 		}
 	}
@@ -535,10 +539,15 @@ func (s *WarrantyService) RegisterByPatient(ctx context.Context, id string, req 
 
 	// 計算保固期間
 	warranty.WarrantyStartDate = warranty.SurgeryDate
-	if product.WarrantyYears == 0 {
+	switch product.WarrantyYears {
+	case -1:
 		// 終身保固
 		warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-	} else {
+	case 0:
+		// 無保固 - 設定為手術當天結束
+		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time)
+	default:
+		// 有期限保固
 		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time.AddDate(product.WarrantyYears, 0, 0))
 	}
 

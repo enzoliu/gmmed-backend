@@ -52,6 +52,11 @@ func (w *WarrantyRegistration) IsExpired() bool {
 		return false
 	}
 
+	// 無保固立即過期
+	if w.NullableProduct.WarrantyYears.Valid && w.NullableProduct.WarrantyYears.Int64 == 0 {
+		return true
+	}
+
 	// 檢查保固結束日期，如果未設置，視為未過期
 	if !w.WarrantyEndDate.Valid {
 		return false

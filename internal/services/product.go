@@ -38,7 +38,7 @@ type ProductCreateRequest struct {
 	Brand         string  `json:"brand" validate:"required,min=1,max=100"`
 	Type          string  `json:"type" validate:"required,min=1,max=50"`
 	Size          *string `json:"size,omitempty" validate:"omitempty,max=50"`
-	WarrantyYears int     `json:"warranty_years" validate:"min=0,max=50"`
+	WarrantyYears int     `json:"warranty_years" validate:"min=-1,max=50"`
 	Description   *string `json:"description,omitempty"`
 }
 
@@ -48,7 +48,7 @@ type ProductUpdateRequest struct {
 	Brand         *string `json:"brand,omitempty" validate:"omitempty,min=1,max=100"`
 	Type          *string `json:"type,omitempty" validate:"omitempty,min=1,max=50"`
 	Size          *string `json:"size,omitempty" validate:"omitempty,max=50"`
-	WarrantyYears *int    `json:"warranty_years,omitempty" validate:"omitempty,min=0,max=50"`
+	WarrantyYears *int    `json:"warranty_years,omitempty" validate:"omitempty,min=-1,max=50"`
 	Description   *string `json:"description,omitempty"`
 	IsActive      *bool   `json:"is_active,omitempty"`
 }
@@ -176,8 +176,8 @@ func (s *ProductService) Update(ctx context.Context, id string, req *ProductUpda
 	}
 
 	if req.WarrantyYears != nil {
-		if *req.WarrantyYears < 0 || *req.WarrantyYears > 50 {
-			return nil, errors.New("warranty years must be between 0 and 50")
+		if *req.WarrantyYears < -1 || *req.WarrantyYears > 50 {
+			return nil, errors.New("warranty years must be between -1 and 50")
 		}
 		product.WarrantyYears = *req.WarrantyYears
 	}
@@ -312,8 +312,8 @@ func (s *ProductService) validateCreateRequest(req *ProductCreateRequest) error 
 		return errors.New("type name too long")
 	}
 
-	if req.WarrantyYears < 0 || req.WarrantyYears > 50 {
-		return errors.New("warranty years must be between 0 and 50")
+	if req.WarrantyYears < -1 || req.WarrantyYears > 50 {
+		return errors.New("warranty years must be between -1 and 50")
 	}
 
 	return nil

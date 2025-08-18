@@ -23,13 +23,15 @@ type Product struct {
 
 // IsLifetimeWarranty 檢查是否為終身保固
 func (p *Product) IsLifetimeWarranty() bool {
-	return p.WarrantyYears == 0
+	return p.WarrantyYears == -1
 }
 
 // GetWarrantyDescription 取得保固描述
 func (p *Product) GetWarrantyDescription() string {
 	if p.IsLifetimeWarranty() {
 		return "終身保固"
+	} else if p.WarrantyYears == 0 {
+		return "無保固"
 	}
 	return fmt.Sprintf("%d年保固", p.WarrantyYears)
 }
@@ -47,7 +49,7 @@ type NullableProduct struct {
 
 func (p *NullableProduct) IsLifetimeWarranty() bool {
 	if p.WarrantyYears.Valid {
-		return p.WarrantyYears.Int64 == 0
+		return p.WarrantyYears.Int64 == -1
 	}
 	return false
 }
