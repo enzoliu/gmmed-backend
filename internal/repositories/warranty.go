@@ -101,6 +101,7 @@ func (r *WarrantyRepository) GetByID(ctx context.Context, id string) (*models.Wa
 			"warranty_registrations.status",
 			"warranty_registrations.created_at",
 			"warranty_registrations.updated_at",
+			"warranty_registrations.step",
 			"products.model_number",
 			"products.brand",
 			"products.type",
@@ -165,6 +166,7 @@ func (r *WarrantyRepository) GetByProductSerialNumber(ctx context.Context, seria
 			"status",
 			"created_at",
 			"updated_at",
+			"step",
 		),
 		sm.From("warranty_registrations"),
 		sm.Where(
@@ -200,6 +202,7 @@ func (r *WarrantyRepository) Update(ctx context.Context, warranty *models.Warran
 		um.SetCol("updated_at").To("NOW()"),
 		um.SetCol("product_serial_number").ToArg(warranty.ProductSerialNumber),
 		um.SetCol("serial_number_2").ToArg(warranty.ProductSerialNumber2),
+		um.SetCol("step").ToArg(warranty.Step),
 		um.Where(psql.Quote("warranty_registrations", "id").EQ(psql.Arg(warranty.ID))),
 	)
 
@@ -355,6 +358,7 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 			"warranty_registrations.status",
 			"warranty_registrations.created_at",
 			"warranty_registrations.updated_at",
+			"warranty_registrations.step",
 			"products.model_number",
 			"products.brand",
 			"products.type",

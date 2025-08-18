@@ -15,11 +15,11 @@ type Handlers struct {
 }
 
 // NewHandlers 建立新的處理器實例
-func NewHandlers(services *services.Services) *Handlers {
+func NewHandlers(services *services.Services, cfg services.GMMedServiceConfigItf) *Handlers {
 	return &Handlers{
 		User:     NewUserHandler(services.User),
 		Product:  NewProductHandler(services.Product),
-		Warranty: NewWarrantyHandler(services.Warranty, services.Serial),
+		Warranty: NewWarrantyHandler(services.Warranty, services.Serial, cfg),
 		Audit:    NewAuditHandler(services.Audit),
 		Auth:     NewAuthHandler(services.Auth),
 		Serial:   NewSerialHandler(services.Serial),

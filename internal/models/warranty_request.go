@@ -13,18 +13,18 @@ import (
 
 // WarrantyUpdateRequest 保固更新請求
 type WarrantyUpdateRequest struct {
-	PatientName          string         `json:"patient_name" validate:"required,min=2,max=100"`
-	PatientID            string         `json:"patient_id" validate:"required,len=10"`
-	PatientBirthDate     time.Time      `json:"patient_birth_date" validate:"required"`
-	PatientPhone         string         `json:"patient_phone" validate:"required,min=10,max=15"`
-	PatientEmail         string         `json:"patient_email" validate:"required,email"`
-	HospitalName         string         `json:"hospital_name" validate:"required,min=2,max=200"`
-	DoctorName           string         `json:"doctor_name" validate:"required,min=2,max=100"`
-	SurgeryDate          time.Time      `json:"surgery_date" validate:"required"`
+	PatientName          string         `json:"patient_name"`
+	PatientID            string         `json:"patient_id"`
+	PatientBirthDate     time.Time      `json:"patient_birth_date"`
+	PatientPhone         string         `json:"patient_phone"`
+	PatientEmail         string         `json:"patient_email"`
+	HospitalName         string         `json:"hospital_name"`
+	DoctorName           string         `json:"doctor_name"`
+	SurgeryDate          time.Time      `json:"surgery_date"`
 	ProductID            string         `json:"product_id" validate:"required,uuid"`
 	ProductSerialNumber  string         `json:"product_serial_number" validate:"required,min=6,max=50"`
 	ProductSerialNumber2 string         `json:"product_serial_number_2,omitempty" validate:"omitempty,min=6,max=50"`
-	Status               WarrantyStatus `json:"status" validate:"required"`
+	Status               WarrantyStatus `json:"status"`
 }
 
 // WarrantyListResponse 保固列表回應
@@ -71,6 +71,98 @@ type BatchCreateResponse struct {
 type WarrantyStatusResponse struct {
 	CanEdit bool   `json:"can_edit"`
 	Message string `json:"message"`
+}
+
+type WarrantyStepsResponse struct {
+	Step int `json:"step"`
+}
+
+// Step1: 驗證產品序號、鎖定手術日期
+type PatientRegistrationRequestStep1 struct {
+	ProductID            string      `json:"product_id"`
+	ProductSerialNumber  string      `json:"product_serial_number"`
+	ProductSerialNumber2 string      `json:"product_serial_number_2,omitempty"`
+	SurgeryDate          GoTimeSucks `json:"surgery_date"`
+}
+
+func (req *PatientRegistrationRequestStep1) Validate() error {
+	return validation.ValidateStruct(req,
+		validation.Field(
+			&req.SurgeryDate,
+			validation.Required.Error("手術日期是必填項"),
+		),
+		validation.Field(
+			&req.ProductID,
+			validation.Required.Error("必填選擇產品"),
+			is.UUID.Error("產品ID格式不正確"),
+		),
+		validation.Field(
+			&req.ProductSerialNumber,
+			validation.Required.Error("產品序號是必填項"),
+			validation.Match(regexp.MustCompile(ProductSerialNumberPattern)).Error("產品序號格式不正確"),
+		),
+		validation.Field(
+			&req.ProductSerialNumber2,
+			validation.When(len(req.ProductSerialNumber2) > 0, validation.Match(regexp.MustCompile(ProductSerialNumberPattern)).Error("產品序號2格式不正確")),
+			validation.When(len(req.ProductSerialNumber2) > 0, validation.NotIn(req.ProductSerialNumber).Error("產品序號2不能與產品序號相同")),
+		),
+	)
+}
+
+// Step2: 更新患者資訊
+type PatientRegistrationRequestStep2 struct {
+	PatientName      string      `json:"patient_name"`
+	IsLocalIdentity  bool        `json:"is_local_identity"`
+	PatientID        string      `json:"patient_id"`
+	PatientBirthDate GoTimeSucks `json:"patient_birth_date"`
+	PatientPhone     string      `json:"patient_phone"`
+	PatientEmail     string      `json:"patient_email"`
+	HospitalName     string      `json:"hospital_name"`
+	DoctorName       string      `json:"doctor_name"`
+}
+
+func (req *PatientRegistrationRequestStep2) Validate() error {
+	return validation.ValidateStruct(req,
+		validation.Field(
+			&req.PatientName,
+			validation.Required.Error("患者姓名是必填項"),
+			validation.Length(2, 100).Error("患者姓名長度必須在2到100個字之間"),
+		),
+		validation.Field(
+			&req.PatientID,
+			validation.Required.Error("患者身分證號是必填項"),
+			validation.By(func(value interface{}) error {
+				if req.IsLocalIdentity {
+					return validator.IsValidTaiwanID(value)
+				}
+				// 不檢查護照號碼
+				return nil
+			}),
+		),
+		validation.Field(
+			&req.PatientBirthDate,
+			validation.Required.Error("患者出生日期是必填項"),
+		),
+		validation.Field(
+			&req.PatientPhone,
+			validation.Required.Error("患者電話是必填項"),
+		),
+		validation.Field(
+			&req.PatientEmail,
+			validation.Required.Error("患者電子信箱是必填項"),
+			is.Email.Error("患者電子信箱格式不正確"),
+		),
+		validation.Field(
+			&req.HospitalName,
+			validation.Required.Error("醫院名稱是必填項"),
+			validation.Length(2, 200).Error("醫院名稱長度必須在2到200個字之間"),
+		),
+		validation.Field(
+			&req.DoctorName,
+			validation.Required.Error("醫生姓名是必填項"),
+			validation.Length(2, 100).Error("醫生姓名長度必須在2到100個字之間"),
+		),
+	)
 }
 
 // PatientRegistrationRequest 患者填寫保固請求

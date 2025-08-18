@@ -76,9 +76,6 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	oldWarranty := *warranty
 
 	// 病患姓名
-	if len(req.PatientName) < 2 || len(req.PatientName) > 100 {
-		return nil, errors.New("病患姓名必須在2到100個字元之間")
-	}
 	warranty.PatientName = null.StringFrom(utils.SanitizeString(req.PatientName))
 
 	// 病患身分證字號加密
@@ -89,15 +86,9 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	warranty.PatientIDEncrypted = null.StringFrom(encryptedID)
 
 	// 出生日期
-	if req.PatientBirthDate.IsZero() {
-		return nil, errors.New("病患出生日期是必填的")
-	}
 	warranty.PatientBirthDate = null.TimeFrom(req.PatientBirthDate)
 
 	// 手機號碼
-	if len(req.PatientPhone) == 0 {
-		return nil, errors.New("病患手機號碼是必填的")
-	}
 	encryptedPhone, err := utils.EncryptPatientPhone(req.PatientPhone, s.cfg.EncryptionKey())
 	if err != nil {
 		return nil, err
@@ -105,42 +96,21 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	warranty.PatientPhoneEncrypted = null.StringFrom(encryptedPhone)
 
 	// 電子郵件
-	if len(req.PatientEmail) == 0 {
-		return nil, errors.New("病患電子郵件是必填的")
-	}
-	if !utils.ValidateEmail(req.PatientEmail) {
-		return nil, errors.New("電子郵件格式不正確")
-	}
 	warranty.PatientEmail = null.StringFrom(utils.SanitizeString(req.PatientEmail))
 
 	// 醫院名稱
-	if len(req.HospitalName) < 2 || len(req.HospitalName) > 255 {
-		return nil, errors.New("醫院名稱必須在2到255個字元之間")
-	}
 	warranty.HospitalName = null.StringFrom(utils.SanitizeString(req.HospitalName))
 
 	// 醫師姓名
-	if len(req.DoctorName) < 2 || len(req.DoctorName) > 100 {
-		return nil, errors.New("醫師姓名必須在2到100個字元之間")
-	}
 	warranty.DoctorName = null.StringFrom(utils.SanitizeString(req.DoctorName))
 
 	// 保固狀態
-	if len(req.Status) == 0 {
-		return nil, errors.New("保固狀態是必填的")
-	}
 	warranty.Status = null.StringFrom(string(req.Status))
 
 	// 手術日期
-	if req.SurgeryDate.IsZero() {
-		return nil, errors.New("手術日期是必填的")
-	}
 	warranty.SurgeryDate = null.TimeFrom(req.SurgeryDate)
 
 	// 產品ID
-	if req.ProductID == "" {
-		return nil, errors.New("產品ID是必填的")
-	}
 	warranty.ProductID = null.StringFrom(req.ProductID)
 
 	// 產品序號1
@@ -432,18 +402,242 @@ func (s *WarrantyService) BatchCreateEmptyWarranties(ctx context.Context, count 
 	return ids, nil
 }
 
-// CheckWarrantyCanEdit 檢查保固是否可以編輯（是否已填寫）
-func (s *WarrantyService) CheckWarrantyCanEdit(ctx context.Context, id string) (bool, error) {
+func (s *WarrantyService) GetWarrantyStatusByPatient(ctx context.Context, id string) (int, error) {
 	warranty, err := s.warrantyRepo.GetByID(ctx, id)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	if warranty == nil {
-		return false, errors.New("warranty not found")
+		return 0, errors.New("warranty not found")
+	}
+	return warranty.Step, nil
+}
+
+func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string, req *models.PatientRegistrationRequestStep1, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
+	// 檢查保固是否存在且可編輯
+	warranty, err := s.warrantyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if warranty == nil {
+		return nil, errors.New("warranty not found")
 	}
 
-	// 如果 created_at == updated_at，表示還沒有被填寫過
-	return warranty.CreatedAt.Equal(warranty.UpdatedAt), nil
+	// 檢查當前保固是否可填寫
+	if warranty.Step != models.STEP_BLANK {
+		return nil, errors.New("warranty has already been filled")
+	}
+
+	// 保存舊資料用於 audit 記錄
+	oldWarranty := *warranty
+
+	// 驗證產品序號不重複
+	exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, errors.New("product serial number already registered")
+	}
+	serial, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
+	if err != nil {
+		return nil, err
+	}
+	if !serial {
+		return nil, errors.New("product serial number not valid")
+	}
+
+	// 如果有第二個序號，也要檢查
+	if req.ProductSerialNumber2 != "" {
+		if req.ProductSerialNumber2 == req.ProductSerialNumber {
+			return nil, errors.New("two serial numbers cannot be the same")
+		}
+		exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber2)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return nil, errors.New("second product serial number already registered")
+		}
+		serial, err = s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber2)
+		if err != nil {
+			return nil, err
+		}
+		if !serial {
+			return nil, errors.New("product serial number not valid")
+		}
+	}
+
+	// 獲取產品資訊
+	product, err := s.productRepo.GetByID(ctx, req.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	if product == nil {
+		return nil, errors.New("product not found")
+	}
+	if !product.IsActive {
+		return nil, errors.New("product is not active")
+	}
+
+	// 驗證手術日期不能在未來
+	if req.SurgeryDate.Time.After(time.Now()) {
+		return nil, errors.New("surgery date cannot be in the future")
+	}
+
+	// 計算保固期間
+	warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate.Time)
+	warranty.Step = models.STEP_SERIAL_VERIFIED
+	switch product.WarrantyYears {
+	case -1:
+		// 終身保固
+		warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
+	case 0:
+		// 無保固 - 設定為手術當天結束
+		warranty.WarrantyEndDate = warranty.WarrantyStartDate
+		warranty.Step = models.STEP_VERIFIED_WITHOUT_WARRANTY
+	default:
+		// 有期限保固
+		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time.AddDate(int(warranty.NullableProduct.WarrantyYears.Int64), 0, 0))
+	}
+
+	warranty.SurgeryDate = null.TimeFrom(req.SurgeryDate.Time)
+	warranty.ProductID = null.StringFrom(req.ProductID)
+	warranty.ProductSerialNumber = null.StringFrom(utils.SanitizeString(req.ProductSerialNumber))
+	if req.ProductSerialNumber2 != "" {
+		serialNumber2 := utils.SanitizeString(req.ProductSerialNumber2)
+		warranty.ProductSerialNumber2 = null.StringFrom(serialNumber2)
+	}
+	warranty.NullableProduct = models.NullableProduct{
+		ModelNumber:   null.StringFrom(product.ModelNumber),
+		Brand:         null.StringFrom(product.Brand),
+		Type:          null.StringFrom(product.Type),
+		Size:          product.Size,
+		WarrantyYears: null.IntFrom(int64(product.WarrantyYears)),
+		Description:   product.Description,
+		IsActive:      null.BoolFrom(product.IsActive),
+	}
+
+	// 更新保固記錄
+	err = s.warrantyRepo.Update(ctx, warranty)
+	if err != nil {
+		return nil, err
+	}
+	// 記錄 audit 日誌
+	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
+
+	return warranty, nil
+}
+
+func (s *WarrantyService) RegisterByPatientStep2(ctx context.Context, id string, req *models.PatientRegistrationRequestStep2, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
+	// 檢查保固是否存在且可編輯
+	warranty, err := s.warrantyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if warranty == nil {
+		return nil, errors.New("warranty not found")
+	}
+
+	// 檢查當前保固是否可填寫
+	if warranty.Step != models.STEP_SERIAL_VERIFIED && warranty.Step != models.STEP_PATIENT_INFO_FILLED {
+		return nil, errors.New("warranty can not be filled")
+	}
+
+	// 保存舊資料用於 audit 記錄
+	oldWarranty := *warranty
+
+	// 加密敏感資料
+	encryptedID, err := utils.EncryptPatientID(req.PatientID, s.cfg.EncryptionKey())
+	if err != nil {
+		return nil, err
+	}
+
+	encryptedPhone, err := utils.EncryptPatientPhone(req.PatientPhone, s.cfg.EncryptionKey())
+	if err != nil {
+		return nil, err
+	}
+
+	// 填寫保固資料
+	warranty.PatientName = null.StringFrom(utils.SanitizeString(req.PatientName))
+	warranty.PatientIDEncrypted = null.StringFrom(encryptedID)
+	warranty.PatientBirthDate = null.TimeFrom(req.PatientBirthDate.Time)
+	warranty.PatientPhoneEncrypted = null.StringFrom(encryptedPhone)
+	warranty.PatientEmail = null.StringFrom(utils.SanitizeString(req.PatientEmail))
+	warranty.HospitalName = null.StringFrom(utils.SanitizeString(req.HospitalName))
+	warranty.DoctorName = null.StringFrom(utils.SanitizeString(req.DoctorName))
+	warranty.Step = models.STEP_PATIENT_INFO_FILLED
+
+	// 更新保固記錄
+	err = s.warrantyRepo.Update(ctx, warranty)
+	if err != nil {
+		return nil, err
+	}
+
+	// 記錄 audit 日誌
+	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
+
+	return warranty, nil
+}
+
+func (s *WarrantyService) RegisterByPatientStep3(ctx context.Context, id string, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
+	// 檢查保固是否存在且可編輯
+	warranty, err := s.warrantyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if warranty == nil {
+		return nil, errors.New("warranty not found")
+	}
+
+	// 檢查當前保固是否可填寫
+	if warranty.Step != models.STEP_PATIENT_INFO_FILLED {
+		return nil, errors.New("warranty can not be confirmed")
+	}
+
+	// 保存舊資料用於 audit 記錄
+	oldWarranty := *warranty
+
+	warranty.Step = models.STEP_WARRANTY_ESTABLISHED
+	warranty.Status = null.StringFrom(string(models.StatusActive))
+
+	// 更新保固記錄
+	err = s.warrantyRepo.Update(ctx, warranty)
+	if err != nil {
+		return nil, err
+	}
+
+	// 發送確認信件，忽略錯誤
+	_ = s.sendConfirmationEmail(ctx, warranty)
+
+	// 記錄 audit 日誌
+	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
+
+	return warranty, nil
+}
+
+func (s *WarrantyService) GetWarrantyByPatientInSteps(ctx context.Context, id string) (*models.WarrantyRegistration, error) {
+	// 檢查保固是否存在
+	warranty, err := s.warrantyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if warranty == nil {
+		return nil, errors.New("warranty not found")
+	}
+
+	// 檢查當前保固是否可填寫
+	if warranty.Step != models.STEP_SERIAL_VERIFIED && warranty.Step != models.STEP_PATIENT_INFO_FILLED {
+		return nil, errors.New("warranty can not be filled")
+	}
+
+	// 移除機敏資訊
+	warranty.PatientIDEncrypted = null.StringFrom("")
+	warranty.PatientPhoneEncrypted = null.StringFrom("")
+	warranty.PatientID = null.StringFrom("")
+	warranty.PatientPhone = null.StringFrom("")
+
+	return warranty, nil
 }
 
 // RegisterByPatient 患者填寫保固（一次性）

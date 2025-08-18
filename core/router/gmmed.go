@@ -23,7 +23,7 @@ func RegisterGMMedRoutes(ctx context.Context, router RouterItf, singletonGroup *
 	services := services.NewServices(writeDB, cfg)
 
 	// 初始化處理器
-	h := handlers.NewHandlers(services)
+	h := handlers.NewHandlers(services, cfg)
 
 	// API 版本群組
 	api := router.Group("/api/v1")
@@ -36,8 +36,13 @@ func RegisterGMMedRoutes(ctx context.Context, router RouterItf, singletonGroup *
 	public.GET("/product", h.Product.GetOneByCondition)                // 公開產品列表供保固註冊使用
 	public.GET("/products-metadata", h.Product.ListMetadata)           // 產品元資料列表（品牌、型號等）
 	public.GET("/warranty/check-serial", h.Warranty.CheckSerialNumber) // 檢查序號是否已被使用
-	public.GET("/warranty/:id/status", h.Warranty.CheckWarrantyStatus) // 檢查保固是否已填寫
-	public.PUT("/warranty/:id/register", h.Warranty.RegisterByPatient) // 患者填寫保固（一次性）
+	// public.GET("/warranty/:id/status", h.Warranty.CheckWarrantyStatus) // 檢查保固是否已填寫
+	// public.PUT("/warranty/:id/register", h.Warranty.RegisterByPatient) // 患者填寫保固（一次性）
+	public.PUT("/warranty/:id/serial", h.Warranty.RegisterByPatientStep1)       // 患者填寫保固（檢查序號是否是正貨/登記手術日）
+	public.PUT("/warranty/:id/info", h.Warranty.RegisterByPatientStep2)         // 患者填寫保固（更新患者資訊）
+	public.PUT("/warranty/:id/confirmation", h.Warranty.RegisterByPatientStep3) // 患者確認保固資訊（建立保固）
+	public.GET("/warranty/:id/info", h.Warranty.GetWarrantyByPatient)           // 患者取得保固資訊（只允許正在填的狀態，且有Cookie驗證）
+	public.GET("/warranty/:id/step", h.Warranty.GetWarrantyStatusByPatient)     // 取得保固填寫階段
 
 	// 需要認證的路由
 	protected := api.Group("")

@@ -8,8 +8,13 @@ import (
 )
 
 const (
-	SurgeryDateFormat          = "2006-01-02T15:04:05" // 手術日期格式
-	ProductSerialNumberPattern = `^\d{7}-\d{3}$`       // 產品序號格式：7位數字-3位數字
+	SurgeryDateFormat              = "2006-01-02T15:04:05" // 手術日期格式
+	ProductSerialNumberPattern     = `^\d{7}-\d{3}$`       // 產品序號格式：7位數字-3位數字
+	STEP_BLANK                     = 0
+	STEP_SERIAL_VERIFIED           = 1
+	STEP_PATIENT_INFO_FILLED       = 2
+	STEP_WARRANTY_ESTABLISHED      = 3
+	STEP_VERIFIED_WITHOUT_WARRANTY = 9
 )
 
 // WarrantyRegistration 保固登記模型
@@ -35,6 +40,7 @@ type WarrantyRegistration struct {
 	Status                null.String `json:"status" db:"status"`
 	CreatedAt             time.Time   `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time   `json:"updated_at" db:"updated_at"`
+	Step                  int         `json:"step,omitempty" db:"step"`
 
 	// 關聯資料（用於查詢時填充）
 	NullableProduct
