@@ -43,6 +43,25 @@ func (h *ProductHandler) GetOneByCondition(c echo.Context) error {
 	return c.JSON(http.StatusOK, product)
 }
 
+// GetOneBySerialNumber 根據序號取得單一產品
+func (h *ProductHandler) GetOneBySerialNumber(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	var req models.GetProductRequestBySerialNumber
+	if err := validator.Load(c, &req); err != nil {
+		return err
+	}
+
+	product, err := h.service.GetOneBySerialNumber(ctx, req.SerialNumber)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, product)
+}
+
 // List 列出產品
 func (h *ProductHandler) List(c echo.Context) error {
 	ctx := c.Request().Context()

@@ -246,15 +246,17 @@ func (h *SerialHandler) CheckSerialExists(c echo.Context) error {
 		})
 	}
 
-	exists, err := h.service.CheckSerialExists(ctx, serialNumber)
+	productID, err := h.service.CheckSerialExists(ctx, serialNumber)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
 
-	if exists {
-		return c.NoContent(http.StatusOK)
+	if productID != "" {
+		return c.JSON(http.StatusOK, map[string]string{
+			"data": productID,
+		})
 	} else {
 		return c.NoContent(http.StatusNotFound)
 	}

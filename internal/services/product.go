@@ -263,6 +263,18 @@ func (s *ProductService) GetOneByCondition(ctx context.Context, req *models.Prod
 	return product, nil
 }
 
+// GetOneBySerialNumber 根據序號取得單一產品
+func (s *ProductService) GetOneBySerialNumber(ctx context.Context, serialNumber string) (*models.Product, error) {
+	product, err := s.productRepo.GetOneBySerialNumber(ctx, serialNumber)
+	if err != nil {
+		return nil, err
+	}
+	if product == nil {
+		return nil, errors.New("product not found")
+	}
+	return product, nil
+}
+
 // GetMetadataList 取得產品相關資訊列表（下拉選單用）
 func (s *ProductService) GetMetadataList(ctx context.Context, metatype string, req *models.ProductSearchRequest) ([]string, error) {
 	switch metatype {

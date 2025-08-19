@@ -11,6 +11,13 @@ import (
 	"github.com/guregu/null/v5"
 )
 
+// GetOneWarrantyResponse 取得單一保固回應（管理者介面）
+type GetOneWarrantyResponse struct {
+	WarrantyRegistration WarrantyRegistration     `json:"warranty_registration"`
+	Product              *ProductWithSerialNumber `json:"product,omitempty"`
+	Product2             *ProductWithSerialNumber `json:"product_2,omitempty"`
+}
+
 // WarrantyUpdateRequest 保固更新請求
 type WarrantyUpdateRequest struct {
 	PatientName          string         `json:"patient_name"`
@@ -21,7 +28,6 @@ type WarrantyUpdateRequest struct {
 	HospitalName         string         `json:"hospital_name"`
 	DoctorName           string         `json:"doctor_name"`
 	SurgeryDate          time.Time      `json:"surgery_date"`
-	ProductID            string         `json:"product_id" validate:"required,uuid"`
 	ProductSerialNumber  string         `json:"product_serial_number" validate:"required,min=6,max=50"`
 	ProductSerialNumber2 string         `json:"product_serial_number_2,omitempty" validate:"omitempty,min=6,max=50"`
 	Status               WarrantyStatus `json:"status"`
@@ -52,8 +58,9 @@ type WarrantySearchRequest struct {
 
 // SerialNumberCheckResponse 序號檢查回應
 type SerialNumberCheckResponse struct {
-	Exists  bool   `json:"exists"`
-	Message string `json:"message"`
+	Exists    bool   `json:"exists"`
+	ProductID string `json:"product_id"`
+	Message   string `json:"message"`
 }
 
 // BatchCreateRequest 批次創建保固請求
@@ -79,7 +86,6 @@ type WarrantyStepsResponse struct {
 
 // Step1: 驗證產品序號、鎖定手術日期
 type PatientRegistrationRequestStep1 struct {
-	ProductID            string      `json:"product_id"`
 	ProductSerialNumber  string      `json:"product_serial_number"`
 	ProductSerialNumber2 string      `json:"product_serial_number_2,omitempty"`
 	SurgeryDate          GoTimeSucks `json:"surgery_date"`
@@ -90,11 +96,6 @@ func (req *PatientRegistrationRequestStep1) Validate() error {
 		validation.Field(
 			&req.SurgeryDate,
 			validation.Required.Error("手術日期是必填項"),
-		),
-		validation.Field(
-			&req.ProductID,
-			validation.Required.Error("必填選擇產品"),
-			is.UUID.Error("產品ID格式不正確"),
 		),
 		validation.Field(
 			&req.ProductSerialNumber,
@@ -176,7 +177,6 @@ type PatientRegistrationRequest struct {
 	HospitalName         string      `json:"hospital_name"`
 	DoctorName           string      `json:"doctor_name"`
 	SurgeryDate          GoTimeSucks `json:"surgery_date"`
-	ProductID            string      `json:"product_id"`
 	ProductSerialNumber  string      `json:"product_serial_number"`
 	ProductSerialNumber2 string      `json:"product_serial_number_2,omitempty"`
 }
@@ -225,11 +225,6 @@ func (req *PatientRegistrationRequest) Validate() error {
 		validation.Field(
 			&req.SurgeryDate,
 			validation.Required.Error("手術日期是必填項"),
-		),
-		validation.Field(
-			&req.ProductID,
-			validation.Required.Error("必填選擇產品"),
-			is.UUID.Error("產品ID格式不正確"),
 		),
 		validation.Field(
 			&req.ProductSerialNumber,

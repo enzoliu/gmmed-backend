@@ -36,20 +36,7 @@ func (p *Product) GetWarrantyDescription() string {
 	return fmt.Sprintf("%d年保固", p.WarrantyYears)
 }
 
-// NullableProduct 用於資料庫查詢時的可選產品模型
-type NullableProduct struct {
-	ModelNumber   null.String `json:"model_number" db:"model_number"`
-	Brand         null.String `json:"brand" db:"brand"`
-	Type          null.String `json:"type" db:"type"`
-	Size          null.String `json:"size" db:"size"`
-	WarrantyYears null.Int    `json:"warranty_years" db:"warranty_years"`
-	Description   null.String `json:"description" db:"description"`
-	IsActive      null.Bool   `json:"is_active" db:"is_active"`
-}
-
-func (p *NullableProduct) IsLifetimeWarranty() bool {
-	if p.WarrantyYears.Valid {
-		return p.WarrantyYears.Int64 == -1
-	}
-	return false
+type ProductWithSerialNumber struct {
+	Product
+	SerialNumber string `json:"serial_number" db:"serial_number"`
 }

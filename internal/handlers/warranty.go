@@ -200,19 +200,6 @@ func (h *WarrantyHandler) ExportExcel(c echo.Context) error {
 	})
 }
 
-// GetStatistics 取得統計資料
-func (h *WarrantyHandler) GetStatistics(c echo.Context) error {
-	ctx := c.Request().Context()
-	stats, err := h.service.GetStatistics(ctx)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
-	}
-
-	return c.JSON(http.StatusOK, stats)
-}
-
 // UpdateExpiredWarranties 批次更新過期保固狀態
 func (h *WarrantyHandler) UpdateExpiredWarranties(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -263,26 +250,29 @@ func (h *WarrantyHandler) CheckSerialNumber(c echo.Context) error {
 	}
 
 	// 呼叫serial service 的 CheckSerialExists
-	valid, err := h.serialService.CheckSerialExists(ctx, serialNumber)
+	productID, err := h.serialService.CheckSerialExists(ctx, serialNumber)
 	if err != nil {
 		// 在伺服器端印出錯誤, 使用slog
 		slog.Error("CheckSerialNumber - CheckSerialExists", "error", err)
 		return c.NoContent(http.StatusForbidden)
 	}
-	if !valid {
+	if productID == "" {
 		slog.Error("CheckSerialNumber - CheckSerialExists", "error", "序號不存在")
 		return c.NoContent(http.StatusForbidden)
 	}
 
+	response := models.SerialNumberCheckResponse{
+		Exists:    exists,
+		ProductID: productID,
+		Message:   "產品序號可使用",
+	}
 	if exists {
-		response := models.SerialNumberCheckResponse{
-			Exists:  exists,
-			Message: "產品序號已註冊",
-		}
+		response.ProductID = ""
+		response.Message = "產品序號已被註冊"
 		return c.JSON(http.StatusConflict, response)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, response)
 }
 
 // BatchCreate 批次創建空白保固記錄（管理員專用）
@@ -521,64 +511,6 @@ func (h *WarrantyHandler) RegisterByPatientStep3(c echo.Context) error {
 	})
 
 	return c.NoContent(http.StatusOK)
-}
-
-// RegisterByPatient 患者填寫保固（一次性，無需認證）
-func (h *WarrantyHandler) RegisterByPatient(c echo.Context) error {
-	ctx := c.Request().Context()
-	id := c.Param("id")
-	if id == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "必須提供保固ID資訊",
-		})
-	}
-
-	var req models.PatientRegistrationRequest
-	if err := validator.Load(c, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
-		})
-	}
-
-	auditCtx := middleware.GetAuditContext(c)
-	warranty, err := h.service.RegisterByPatient(ctx, id, &req, auditCtx)
-	if err != nil {
-		if err.Error() == "warranty has already been filled" {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error": "保固已填寫",
-			})
-		}
-		if err.Error() == "warranty not found" {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "保固記錄不存在",
-			})
-		}
-		if err.Error() == "product serial number already registered" {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error": "產品序號已被註冊",
-			})
-		}
-		if err.Error() == "second product serial number already registered" {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error": "第二個產品序號已被註冊",
-			})
-		}
-		if err.Error() == "two serial numbers cannot be the same" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "兩個序號不能相同",
-			})
-		}
-		if err.Error() == "product serial number not valid" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "產品序號無效",
-			})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "註冊保固失敗, 原因:" + err.Error(),
-		})
-	}
-
-	return c.JSON(http.StatusOK, warranty)
 }
 
 // GetWarrantyByPatient 取得患者保固資訊

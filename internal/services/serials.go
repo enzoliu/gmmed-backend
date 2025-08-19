@@ -383,18 +383,18 @@ func (s *SerialService) BulkCreate(ctx context.Context, req *models.SerialBulkIm
 	return response, nil
 }
 
-// CheckSerialExists 檢查序號是否存在
-func (s *SerialService) CheckSerialExists(ctx context.Context, serialNumber string) (bool, error) {
+// CheckSerialExists 檢查序號是否存在，存在的話會回傳product id
+func (s *SerialService) CheckSerialExists(ctx context.Context, serialNumber string) (string, error) {
 	if serialNumber == "" {
-		return false, errors.New("序號不能為空字串")
+		return "", errors.New("序號不能為空字串")
 	}
 
-	exists, err := s.serialRepo.ExistsBySerialNumber(ctx, serialNumber)
+	productID, err := s.serialRepo.ExistsBySerialNumber(ctx, serialNumber)
 	if err != nil {
-		return false, fmt.Errorf("無法檢查序號是否存在: %w", err)
+		return "", fmt.Errorf("無法檢查序號是否存在: %w", err)
 	}
 
-	return exists, nil
+	return productID, nil
 }
 
 // GetSerialsWithProduct 取得序號及其產品資訊

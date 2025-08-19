@@ -19,6 +19,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	WARRANTY_YEARS_LIFETIME    = -1
+	WARRANTY_YEARS_NO_WARRANTY = 0
+)
+
 type WarrantyRouteConfigItf interface {
 	MailgunConfigItf
 	EncryptionKey() string
@@ -49,7 +54,7 @@ func NewWarrantyService(db dbutil.PgxClientItf, cfg WarrantyRouteConfigItf) *War
 }
 
 // GetByID 根據ID取得保固登記
-func (s *WarrantyService) GetByID(ctx context.Context, id string) (*models.WarrantyRegistration, error) {
+func (s *WarrantyService) GetByID(ctx context.Context, id string) (*models.GetOneWarrantyResponse, error) {
 	warranty, err := s.warrantyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -57,8 +62,41 @@ func (s *WarrantyService) GetByID(ctx context.Context, id string) (*models.Warra
 	if warranty == nil {
 		return nil, errors.New("warranty registration not found")
 	}
+	// 取得產品資訊
+	var product *models.ProductWithSerialNumber
+	var product2 *models.ProductWithSerialNumber
+	if warranty.ProductSerialNumber.Valid && warranty.ProductSerialNumber.String != "" {
+		p, err := s.productRepo.GetOneBySerialNumber(ctx, warranty.ProductSerialNumber.String)
+		if err != nil {
+			return nil, err
+		}
+		if p == nil {
+			return nil, errors.New("product not found")
+		}
+		product = &models.ProductWithSerialNumber{
+			Product:      *p,
+			SerialNumber: warranty.ProductSerialNumber.String,
+		}
+	}
+	if warranty.ProductSerialNumber2.Valid && warranty.ProductSerialNumber2.String != "" {
+		p, err := s.productRepo.GetOneBySerialNumber(ctx, warranty.ProductSerialNumber2.String)
+		if err != nil {
+			return nil, err
+		}
+		if p == nil {
+			return nil, errors.New("product not found")
+		}
+		product2 = &models.ProductWithSerialNumber{
+			Product:      *p,
+			SerialNumber: warranty.ProductSerialNumber2.String,
+		}
+	}
 
-	return warranty, nil
+	return &models.GetOneWarrantyResponse{
+		WarrantyRegistration: *warranty,
+		Product:              product,
+		Product2:             product2,
+	}, nil
 }
 
 // Update 更新保固登記 (管理者更新)
@@ -110,9 +148,6 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	// 手術日期
 	warranty.SurgeryDate = null.TimeFrom(req.SurgeryDate)
 
-	// 產品ID
-	warranty.ProductID = null.StringFrom(req.ProductID)
-
 	// 產品序號1
 	if req.ProductSerialNumber == "" {
 		return nil, errors.New("產品序號1是必填的")
@@ -145,39 +180,21 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	}
 
 	// 重新計算保固期間
-	// 如果 warranty.Product 為 nil，需要取得產品資訊
-	if !warranty.NullableProduct.Brand.Valid && warranty.ProductID.Valid {
-		product, err := s.productRepo.GetByID(ctx, warranty.ProductID.String)
-		if err != nil {
-			return nil, err
-		}
-		if !product.IsActive {
-			return nil, errors.New("產品已停用")
-		}
-		warranty.NullableProduct = models.NullableProduct{
-			ModelNumber:   null.StringFrom(product.ModelNumber),
-			Brand:         null.StringFrom(product.Brand),
-			Type:          null.StringFrom(product.Type),
-			Size:          product.Size,
-			WarrantyYears: null.IntFrom(int64(product.WarrantyYears)),
-			Description:   product.Description,
-			IsActive:      null.BoolFrom(product.IsActive),
-		}
+	warrantyYears, err := s.GetWarrantyYears(ctx, warranty.ProductSerialNumber.String, warranty.ProductSerialNumber2.String)
+	if err != nil {
+		return nil, err
 	}
-
-	if warranty.NullableProduct.Brand.Valid {
-		// 保固起始日期設為手術日期（確保滿足約束 surgery_date <= warranty_start_date）
-		warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate)
-		// 如果 warranty_years 為 -1，表示終身保固
-		switch warranty.NullableProduct.WarrantyYears.Int64 {
-		case -1:
-			warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-		case 0:
-			// 無保固 - 設定為手術當天結束
-			warranty.WarrantyEndDate = warranty.WarrantyStartDate
-		default:
-			warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.AddDate(int(warranty.NullableProduct.WarrantyYears.Int64), 0, 0))
-		}
+	// 保固起始日期設為手術日期（確保滿足約束 surgery_date <= warranty_start_date）
+	warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate)
+	// 如果 warranty_years 為 -1，表示終身保固
+	switch warrantyYears {
+	case WARRANTY_YEARS_LIFETIME:
+		warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
+	case WARRANTY_YEARS_NO_WARRANTY:
+		// 無保固 - 設定為手術當天結束
+		warranty.WarrantyEndDate = warranty.WarrantyStartDate
+	default:
+		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.AddDate(warrantyYears, 0, 0))
 	}
 
 	if warranty.WarrantyEndDate.Valid {
@@ -239,11 +256,6 @@ func (s *WarrantyService) Search(ctx context.Context, req *models.WarrantySearch
 		PageSize:   req.PageSize,
 		TotalPages: totalPages,
 	}, nil
-}
-
-// GetStatistics 取得保固統計
-func (s *WarrantyService) GetStatistics(ctx context.Context) (*models.WarrantyStatistics, error) {
-	return s.warrantyRepo.GetStatistics(ctx)
 }
 
 // ResendConfirmationEmail 重新發送確認信件
@@ -415,6 +427,7 @@ func (s *WarrantyService) GetWarrantyStatusByPatient(ctx context.Context, id str
 
 func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string, req *models.PatientRegistrationRequestStep1, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
 	// 檢查保固是否存在且可編輯
+	fmt.Println("1")
 	warranty, err := s.warrantyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -431,6 +444,7 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 	// 保存舊資料用於 audit 記錄
 	oldWarranty := *warranty
 
+	fmt.Println("2")
 	// 驗證產品序號不重複
 	exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber)
 	if err != nil {
@@ -439,14 +453,15 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 	if exists {
 		return nil, errors.New("product serial number already registered")
 	}
-	serial, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
+	fmt.Println("3")
+	productID, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
 	if err != nil {
 		return nil, err
 	}
-	if !serial {
+	if productID == "" {
 		return nil, errors.New("product serial number not valid")
 	}
-
+	fmt.Println("4")
 	// 如果有第二個序號，也要檢查
 	if req.ProductSerialNumber2 != "" {
 		if req.ProductSerialNumber2 == req.ProductSerialNumber {
@@ -459,70 +474,54 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 		if exists {
 			return nil, errors.New("second product serial number already registered")
 		}
-		serial, err = s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber2)
+		productID, err = s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber2)
 		if err != nil {
 			return nil, err
 		}
-		if !serial {
+		if productID == "" {
 			return nil, errors.New("product serial number not valid")
 		}
 	}
-
-	// 獲取產品資訊
-	product, err := s.productRepo.GetByID(ctx, req.ProductID)
-	if err != nil {
-		return nil, err
-	}
-	if product == nil {
-		return nil, errors.New("product not found")
-	}
-	if !product.IsActive {
-		return nil, errors.New("product is not active")
-	}
-
+	fmt.Println("5")
 	// 驗證手術日期不能在未來
 	if req.SurgeryDate.Time.After(time.Now()) {
 		return nil, errors.New("surgery date cannot be in the future")
 	}
 
 	// 計算保固期間
+	warrantyYears, err := s.GetWarrantyYears(ctx, req.ProductSerialNumber, req.ProductSerialNumber2)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("6")
 	warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate.Time)
 	warranty.Step = models.STEP_SERIAL_VERIFIED
-	switch product.WarrantyYears {
-	case -1:
+	switch warrantyYears {
+	case WARRANTY_YEARS_LIFETIME:
 		// 終身保固
 		warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-	case 0:
+	case WARRANTY_YEARS_NO_WARRANTY:
 		// 無保固 - 設定為手術當天結束
 		warranty.WarrantyEndDate = warranty.WarrantyStartDate
 		warranty.Step = models.STEP_VERIFIED_WITHOUT_WARRANTY
 	default:
 		// 有期限保固
-		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time.AddDate(int(warranty.NullableProduct.WarrantyYears.Int64), 0, 0))
+		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time.AddDate(warrantyYears, 0, 0))
 	}
 
 	warranty.SurgeryDate = null.TimeFrom(req.SurgeryDate.Time)
-	warranty.ProductID = null.StringFrom(req.ProductID)
 	warranty.ProductSerialNumber = null.StringFrom(utils.SanitizeString(req.ProductSerialNumber))
 	if req.ProductSerialNumber2 != "" {
 		serialNumber2 := utils.SanitizeString(req.ProductSerialNumber2)
 		warranty.ProductSerialNumber2 = null.StringFrom(serialNumber2)
 	}
-	warranty.NullableProduct = models.NullableProduct{
-		ModelNumber:   null.StringFrom(product.ModelNumber),
-		Brand:         null.StringFrom(product.Brand),
-		Type:          null.StringFrom(product.Type),
-		Size:          product.Size,
-		WarrantyYears: null.IntFrom(int64(product.WarrantyYears)),
-		Description:   product.Description,
-		IsActive:      null.BoolFrom(product.IsActive),
-	}
-
+	fmt.Println("7")
 	// 更新保固記錄
 	err = s.warrantyRepo.Update(ctx, warranty)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("8")
 	// 記錄 audit 日誌
 	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
 
@@ -640,139 +639,69 @@ func (s *WarrantyService) GetWarrantyByPatientInSteps(ctx context.Context, id st
 	return warranty, nil
 }
 
-// RegisterByPatient 患者填寫保固（一次性）
-func (s *WarrantyService) RegisterByPatient(ctx context.Context, id string, req *models.PatientRegistrationRequest, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
-	// 檢查保固是否存在且可編輯
-	warranty, err := s.warrantyRepo.GetByID(ctx, id)
+// GetWarrantyYears 獲取產品資訊，保固年限取低的
+func (s *WarrantyService) GetWarrantyYears(ctx context.Context, serialNumber1, serialNumber2 string) (int, error) {
+	product1, err := s.productRepo.GetOneBySerialNumber(ctx, serialNumber1)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	if warranty == nil {
-		return nil, errors.New("warranty not found")
+	if product1 == nil {
+		return 0, errors.New("product not found")
 	}
-	if !warranty.CreatedAt.Equal(warranty.UpdatedAt) {
-		return nil, errors.New("warranty has already been filled")
+	if !product1.IsActive {
+		return 0, errors.New("product is not active")
 	}
-
-	// 保存舊資料用於 audit 記錄
-	oldWarranty := *warranty
-
-	// 驗證產品序號不重複
-	exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber)
+	if product1.WarrantyYears == WARRANTY_YEARS_NO_WARRANTY {
+		return WARRANTY_YEARS_NO_WARRANTY, nil
+	}
+	if serialNumber2 == "" {
+		return product1.WarrantyYears, nil
+	}
+	warrantyYears := product1.WarrantyYears
+	product2, err := s.productRepo.GetOneBySerialNumber(ctx, serialNumber2)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	if exists {
-		return nil, errors.New("product serial number already registered")
+	if product2 == nil {
+		return 0, errors.New("product not found")
 	}
-	serial, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
-	if err != nil {
-		return nil, err
+	if !product2.IsActive {
+		return 0, errors.New("product is not active")
 	}
-	if !serial {
-		return nil, errors.New("product serial number not valid")
+	if product2.WarrantyYears == WARRANTY_YEARS_NO_WARRANTY {
+		return WARRANTY_YEARS_NO_WARRANTY, nil
 	}
-
-	// 如果有第二個序號，也要檢查
-	if req.ProductSerialNumber2 != "" {
-		if req.ProductSerialNumber2 == req.ProductSerialNumber {
-			return nil, errors.New("two serial numbers cannot be the same")
-		}
-		exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber2)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			return nil, errors.New("second product serial number already registered")
-		}
+	if warrantyYears == WARRANTY_YEARS_LIFETIME && product2.WarrantyYears != WARRANTY_YEARS_LIFETIME {
+		return product2.WarrantyYears, nil
 	}
-
-	// 獲取產品資訊
-	product, err := s.productRepo.GetByID(ctx, req.ProductID)
-	if err != nil {
-		return nil, err
+	if warrantyYears != WARRANTY_YEARS_LIFETIME && product2.WarrantyYears != WARRANTY_YEARS_LIFETIME {
+		return min(warrantyYears, product2.WarrantyYears), nil
 	}
-	if product == nil {
-		return nil, errors.New("product not found")
-	}
-	if !product.IsActive {
-		return nil, errors.New("產品已停用")
-	}
-
-	// 加密敏感資料
-	encryptedID, err := utils.EncryptPatientID(req.PatientID, s.cfg.EncryptionKey())
-	if err != nil {
-		return nil, err
-	}
-
-	encryptedPhone, err := utils.EncryptPatientPhone(req.PatientPhone, s.cfg.EncryptionKey())
-	if err != nil {
-		return nil, err
-	}
-
-	// 填寫保固資料
-	warranty.PatientName = null.StringFrom(utils.SanitizeString(req.PatientName))
-	warranty.PatientIDEncrypted = null.StringFrom(encryptedID)
-	warranty.PatientBirthDate = null.TimeFrom(req.PatientBirthDate.Time)
-	warranty.PatientPhoneEncrypted = null.StringFrom(encryptedPhone)
-	warranty.PatientEmail = null.StringFrom(utils.SanitizeString(req.PatientEmail))
-	warranty.HospitalName = null.StringFrom(utils.SanitizeString(req.HospitalName))
-	warranty.DoctorName = null.StringFrom(utils.SanitizeString(req.DoctorName))
-	warranty.SurgeryDate = null.TimeFrom(req.SurgeryDate.Time)
-	warranty.ProductID = null.StringFrom(req.ProductID)
-	warranty.ProductSerialNumber = null.StringFrom(utils.SanitizeString(req.ProductSerialNumber))
-	if req.ProductSerialNumber2 != "" {
-		serialNumber2 := utils.SanitizeString(req.ProductSerialNumber2)
-		warranty.ProductSerialNumber2 = null.StringFrom(serialNumber2)
-	}
-
-	// 驗證手術日期不能在未來
-	if req.SurgeryDate.Time.After(time.Now()) {
-		return nil, errors.New("surgery date cannot be in the future")
-	}
-
-	// 計算保固期間
-	warranty.WarrantyStartDate = warranty.SurgeryDate
-	switch product.WarrantyYears {
-	case -1:
-		// 終身保固
-		warranty.WarrantyEndDate = null.TimeFrom(time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-	case 0:
-		// 無保固 - 設定為手術當天結束
-		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time)
-	default:
-		// 有期限保固
-		warranty.WarrantyEndDate = null.TimeFrom(req.SurgeryDate.Time.AddDate(product.WarrantyYears, 0, 0))
-	}
-
-	warranty.Status = null.StringFrom(string(models.StatusActive))
-	warranty.NullableProduct = models.NullableProduct{
-		ModelNumber:   null.StringFrom(product.ModelNumber),
-		Brand:         null.StringFrom(product.Brand),
-		Type:          null.StringFrom(product.Type),
-		Size:          product.Size,
-		WarrantyYears: null.IntFrom(int64(product.WarrantyYears)),
-		Description:   product.Description,
-		IsActive:      null.BoolFrom(product.IsActive),
-	}
-
-	// 更新保固記錄
-	err = s.warrantyRepo.Update(ctx, warranty)
-	if err != nil {
-		return nil, err
-	}
-
-	// 發送確認信件，忽略錯誤
-	_ = s.sendConfirmationEmail(ctx, warranty)
-
-	// 記錄 audit 日誌
-	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
-
-	return warranty, nil
+	return warrantyYears, nil
 }
 
 // sendConfirmationEmail 發送確認信件
 func (s *WarrantyService) sendConfirmationEmail(ctx context.Context, warranty *models.WarrantyRegistration) error {
+	// 準備產品資料
+	productInfo, err := s.productRepo.GetOneBySerialNumber(ctx, warranty.ProductSerialNumber.String)
+	if err != nil {
+		return err
+	}
+	if productInfo == nil {
+		return errors.New("product not found")
+	}
+	if warranty.ProductSerialNumber2.Valid && warranty.ProductSerialNumber2.String != "" {
+		productInfo2, err := s.productRepo.GetOneBySerialNumber(ctx, warranty.ProductSerialNumber2.String)
+		if err != nil {
+			return err
+		}
+		if productInfo2 == nil {
+			return errors.New("product not found")
+		}
+		representativeProduct := getRepresentativeWarrantyProduct(productInfo, productInfo2)
+		productInfo = representativeProduct
+	}
+
 	// 檢查 Mailgun 設定
 	if s.cfg.MailgunDomain() == "" || s.cfg.MailgunAPIKey() == "" {
 		logrus.Warn("Mailgun not configured, skipping email sending")
@@ -780,7 +709,7 @@ func (s *WarrantyService) sendConfirmationEmail(ctx context.Context, warranty *m
 	}
 
 	// 發送患者確認信件
-	err := s.emailService.SendWarrantyConfirmation(warranty)
+	err = s.emailService.SendWarrantyConfirmation(warranty, productInfo)
 	if err != nil {
 		logrus.WithError(err).WithField("warranty_id", warranty.ID).Error("Failed to send warranty confirmation email")
 		return err
@@ -795,11 +724,30 @@ func (s *WarrantyService) sendConfirmationEmail(ctx context.Context, warranty *m
 
 	// 發送公司通知信件（異步，不影響主流程）
 	go func() {
-		if err := s.emailService.SendNotificationToCompany(warranty); err != nil {
+		if err := s.emailService.SendNotificationToCompany(warranty, productInfo); err != nil {
 			logrus.WithError(err).WithField("warranty_id", warranty.ID).Error("Failed to send company notification email")
 		}
 	}()
 
 	logrus.WithField("warranty_id", warranty.ID).Info("Warranty confirmation email sent successfully")
 	return nil
+}
+
+func getRepresentativeWarrantyProduct(product1, product2 *models.Product) *models.Product {
+	if product1.WarrantyYears == WARRANTY_YEARS_LIFETIME {
+		return product2
+	}
+	if product2.WarrantyYears == WARRANTY_YEARS_LIFETIME {
+		return product1
+	}
+	if product1.WarrantyYears == WARRANTY_YEARS_NO_WARRANTY {
+		return product1
+	}
+	if product2.WarrantyYears == WARRANTY_YEARS_NO_WARRANTY {
+		return product2
+	}
+	if product1.WarrantyYears > product2.WarrantyYears {
+		return product2
+	}
+	return product1
 }

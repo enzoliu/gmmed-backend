@@ -19,6 +19,10 @@ type ProductSearchRequest struct {
 	entity.Pagination
 }
 
+type GetProductRequestBySerialNumber struct {
+	SerialNumber string `query:"serial_number"`
+}
+
 type ProductMetadataAllResponse struct {
 	Data []ProductMetadata `json:"data"`
 }

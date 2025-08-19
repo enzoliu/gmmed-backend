@@ -113,7 +113,7 @@ func (r *SerialRepository) GetByFullSerialNumber(ctx context.Context, fullSerial
 }
 
 // ExistsBySerialNumber 檢查序號是否存在
-func (r *SerialRepository) ExistsBySerialNumber(ctx context.Context, serialNumber string) (bool, error) {
+func (r *SerialRepository) ExistsBySerialNumber(ctx context.Context, serialNumber string) (string, error) {
 	builder := psql.Select(
 		sm.Columns("id", "serial_number", "full_serial_number", "product_id", "created_at", "updated_at"),
 		sm.From("serials"),
@@ -129,15 +129,18 @@ func (r *SerialRepository) ExistsBySerialNumber(ctx context.Context, serialNumbe
 	exists, err := dbutil.GetOne[models.Serial](ctx, r.db, builder)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return false, nil
+			return "", nil
 		}
-		return false, err
+		return "", err
 	}
 	if exists == nil {
-		return false, nil
+		return "", nil
+	}
+	if exists.ProductID.Valid {
+		return exists.ProductID.String, nil
 	}
 
-	return exists.ID != "", nil
+	return "", nil
 }
 
 // ExistsByFullSerialNumber 檢查完整序號是否存在

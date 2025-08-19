@@ -64,7 +64,7 @@ type WarrantyConfirmationData struct {
 }
 
 // SendWarrantyConfirmation 發送保固確認信件
-func (s *EmailService) SendWarrantyConfirmation(warranty *models.WarrantyRegistration) error {
+func (s *EmailService) SendWarrantyConfirmation(warranty *models.WarrantyRegistration, product *models.Product) error {
 	// 檢查 registration 資料
 	if warranty == nil {
 		return fmt.Errorf("warranty registration is nil")
@@ -81,15 +81,12 @@ func (s *EmailService) SendWarrantyConfirmation(warranty *models.WarrantyRegistr
 	if !warranty.WarrantyEndDate.Valid {
 		return fmt.Errorf("warranty end date is nil")
 	}
-	if !warranty.ProductID.Valid {
-		return fmt.Errorf("product ID is nil")
-	}
 	if !warranty.ProductSerialNumber.Valid || warranty.ProductSerialNumber.String == "" {
 		return fmt.Errorf("product serial number is nil")
 	}
 
 	// 準備信件資料
-	data := s.prepareWarrantyData(warranty)
+	data := s.prepareWarrantyData(warranty, product)
 
 	// 生成信件內容
 	subject := s.generateSubject(data)
@@ -144,13 +141,13 @@ func (s *EmailService) SendWarrantyConfirmation(warranty *models.WarrantyRegistr
 }
 
 // SendNotificationToCompany 發送通知信件給公司
-func (s *EmailService) SendNotificationToCompany(warranty *models.WarrantyRegistration) error {
+func (s *EmailService) SendNotificationToCompany(warranty *models.WarrantyRegistration, product *models.Product) error {
 	if s.cfg.CompanyNotificationEmail() == "" {
 		s.logger.Warn("Company notification email not configured, skipping notification")
 		return nil
 	}
 
-	data := s.prepareWarrantyData(warranty)
+	data := s.prepareWarrantyData(warranty, product)
 
 	subject := fmt.Sprintf("新保固登記通知 - %s", data.PatientName)
 	htmlBody, err := s.generateCompanyNotificationHTML(data)
@@ -196,7 +193,7 @@ func (s *EmailService) SendNotificationToCompany(warranty *models.WarrantyRegist
 }
 
 // prepareWarrantyData 準備信件資料
-func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration) *WarrantyConfirmationData {
+func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration, product *models.Product) *WarrantyConfirmationData {
 	// 提取姓氏（假設姓氏是名字的第一個字）
 	surname := ""
 	patientName := warranty.PatientName.String
@@ -211,15 +208,10 @@ func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration
 
 	// 檢查是否為終身保固
 	isLifetimeWarranty := false
-	if warranty.NullableProduct.WarrantyYears.Valid && warranty.NullableProduct.WarrantyYears.Int64 == -1 {
+	if warranty.WarrantyEndDate.Time.Year() == 9999 {
 		// 終身保固
 		warrantyEndDate = "終身保固"
-	} else if warranty.NullableProduct.WarrantyYears.Int64 == 0 {
-		// 無保固
-		warrantyEndDate = "無保固"
-	} else {
-		// 有期限保固
-		warrantyEndDate = warranty.WarrantyEndDate.Time.Format("2006-01-02")
+		isLifetimeWarranty = true
 	}
 
 	// 處理第二個序號
@@ -244,13 +236,11 @@ func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration
 	}
 
 	// 填充產品資訊
-	if warranty.NullableProduct.ModelNumber.Valid {
-		data.ProductBrand = warranty.NullableProduct.Brand.String
-		data.ProductModel = warranty.NullableProduct.ModelNumber.String
-		if warranty.NullableProduct.Size.Valid {
-			data.ProductSize = warranty.NullableProduct.Size.String
-		}
-		data.ProductType = warranty.NullableProduct.Type.String
+	data.ProductBrand = product.Brand
+	data.ProductModel = product.ModelNumber
+	data.ProductType = product.Type
+	if product.Size.Valid {
+		data.ProductSize = product.Size.String
 	}
 
 	return data

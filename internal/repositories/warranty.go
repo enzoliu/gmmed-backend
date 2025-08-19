@@ -47,7 +47,6 @@ func (r *WarrantyRepository) Create(ctx context.Context, warranty *models.Warran
 			"hospital_name",
 			"doctor_name",
 			"surgery_date",
-			"product_id",
 			"product_serial_number",
 			"serial_number_2",
 			"warranty_start_date",
@@ -64,7 +63,6 @@ func (r *WarrantyRepository) Create(ctx context.Context, warranty *models.Warran
 			warranty.HospitalName,
 			warranty.DoctorName,
 			warranty.SurgeryDate,
-			warranty.ProductID,
 			warranty.ProductSerialNumber,
 			warranty.ProductSerialNumber2,
 			warranty.WarrantyStartDate,
@@ -91,7 +89,6 @@ func (r *WarrantyRepository) GetByID(ctx context.Context, id string) (*models.Wa
 			"warranty_registrations.hospital_name",
 			"warranty_registrations.doctor_name",
 			"warranty_registrations.surgery_date",
-			"warranty_registrations.product_id",
 			"warranty_registrations.product_serial_number",
 			"warranty_registrations.serial_number_2",
 			"warranty_registrations.warranty_start_date",
@@ -102,18 +99,8 @@ func (r *WarrantyRepository) GetByID(ctx context.Context, id string) (*models.Wa
 			"warranty_registrations.created_at",
 			"warranty_registrations.updated_at",
 			"warranty_registrations.step",
-			"products.model_number",
-			"products.brand",
-			"products.type",
-			"products.size",
-			"products.warranty_years",
-			"products.description",
-			"products.is_active",
 		),
 		sm.From("warranty_registrations"),
-		sm.LeftJoin("products").On(
-			psql.Raw("warranty_registrations.product_id = products.id"),
-		),
 		sm.Where(
 			psql.And(
 				psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id)),
@@ -156,7 +143,6 @@ func (r *WarrantyRepository) GetByProductSerialNumber(ctx context.Context, seria
 			"hospital_name",
 			"doctor_name",
 			"surgery_date",
-			"product_id",
 			"product_serial_number",
 			"serial_number_2",
 			"warranty_start_date",
@@ -195,7 +181,6 @@ func (r *WarrantyRepository) Update(ctx context.Context, warranty *models.Warran
 		um.SetCol("hospital_name").ToArg(warranty.HospitalName),
 		um.SetCol("doctor_name").ToArg(warranty.DoctorName),
 		um.SetCol("surgery_date").ToArg(warranty.SurgeryDate),
-		um.SetCol("product_id").ToArg(warranty.ProductID),
 		um.SetCol("warranty_start_date").ToArg(warranty.WarrantyStartDate),
 		um.SetCol("warranty_end_date").ToArg(warranty.WarrantyEndDate),
 		um.SetCol("status").ToArg(warranty.Status),
@@ -250,6 +235,10 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 
 	conditions = append(conditions,
 		psql.Quote("warranty_registrations", "created_at").NE(psql.Quote("warranty_registrations", "updated_at")),
+	)
+	// 只找 step 為 3 的保固記錄
+	conditions = append(conditions,
+		psql.Quote("warranty_registrations", "step").EQ(psql.Arg(models.STEP_WARRANTY_ESTABLISHED)),
 	)
 
 	// 檢查是否可能是身分證字號搜尋
@@ -334,9 +323,6 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 	}
 	conditions = append(conditions, deleteCondition)
 
-	// 如果Product ID 是null，表示是空白保固記錄，不應該被搜尋到
-	conditions = append(conditions, psql.Quote("warranty_registrations", "product_id").IsNotNull())
-
 	builder := psql.Select(
 		sm.Columns(
 			"warranty_registrations.id",
@@ -348,7 +334,6 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 			"warranty_registrations.hospital_name",
 			"warranty_registrations.doctor_name",
 			"warranty_registrations.surgery_date",
-			"warranty_registrations.product_id",
 			"warranty_registrations.product_serial_number",
 			"warranty_registrations.serial_number_2",
 			"warranty_registrations.warranty_start_date",
@@ -359,19 +344,9 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 			"warranty_registrations.created_at",
 			"warranty_registrations.updated_at",
 			"warranty_registrations.step",
-			"products.model_number",
-			"products.brand",
-			"products.type",
-			"products.size",
-			"products.warranty_years",
-			"products.description",
-			"products.is_active",
 			"COUNT(warranty_registrations.id) OVER() AS total_count",
 		),
 		sm.From("warranty_registrations"),
-		sm.LeftJoin("products").On(
-			psql.Raw("warranty_registrations.product_id = products.id"),
-		),
 		sm.OrderBy(psql.Quote("warranty_registrations", "created_at")).Desc(),
 		page.OffsetClause(),
 	)
@@ -425,91 +400,6 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 	}
 
 	return warranties, total, nil
-}
-
-// GetStatistics 取得保固統計資料
-func (r *WarrantyRepository) GetStatistics(ctx context.Context) (*models.WarrantyStatistics, error) {
-	builder := psql.Select(
-		sm.Columns(
-			"COUNT(*) as total_registrations",
-			psql.Raw("COUNT(CASE WHEN status = 'active' THEN 1 END) as active_warranties"),
-			psql.Raw("COUNT(CASE WHEN status = 'expired' THEN 1 END) as expired_warranties"),
-			psql.Raw("COUNT(CASE WHEN status = 'active' AND warranty_end_date <= NOW() + INTERVAL '30 days' AND warranty_end_date < '9999-01-01'::timestamp THEN 1 END) as expiring_soon"),
-		),
-		sm.From("warranty_registrations"),
-	)
-
-	result, err := dbutil.GetOne[models.WarrantyStatistics](ctx, r.db, builder)
-	if err != nil {
-		return nil, err
-	}
-
-	builder = psql.Select(
-		sm.Columns(
-			"hospital_name",
-			"COUNT(*) as total_registrations",
-			psql.Raw("COUNT(CASE WHEN status = 'active' THEN 1 END) as active_registrations"),
-			psql.Raw("COUNT(DISTINCT doctor_name) as total_doctors"),
-		),
-		sm.From("v_hospital_statistics"),
-		sm.GroupBy(psql.Quote("v_hospital_statistics", "hospital_name")),
-		sm.OrderBy(psql.Quote("v_hospital_statistics", "total_registrations")).Desc(),
-		sm.Limit(10),
-	)
-	result.HospitalStats, err = dbutil.GetAll[models.HospitalStatistic](ctx, r.db, builder)
-	if err != nil {
-		return nil, err
-	}
-
-	builder = psql.Select(
-		sm.Columns(
-			"p.id",
-			"p.model_number",
-			"p.brand",
-			"COUNT(wr.id) as total_usage",
-			psql.Raw("COUNT(CASE WHEN wr.status = 'active' THEN 1 END) as active_usage"),
-		),
-		sm.From("products").As("p"),
-		sm.LeftJoin("warranty_registrations").As("wr").On(psql.Raw("p.id = wr.product_id")),
-		sm.Where(psql.Quote("p", "is_active").EQ(psql.Arg(true))),
-		sm.GroupBy(psql.Quote("p", "id")),
-		sm.OrderBy(psql.Quote("total_usage")).Desc(),
-		sm.Limit(10),
-	)
-	result.ProductStats, err = dbutil.GetAll[models.ProductStatistic](ctx, r.db, builder)
-	if err != nil {
-		return nil, err
-	}
-
-	builder = psql.Select(
-		sm.Columns(
-			"EXTRACT(YEAR FROM created_at) as year",
-			"EXTRACT(MONTH FROM created_at) as month",
-			"COUNT(*) as count",
-		),
-		sm.From("warranty_registrations"),
-		sm.Where(psql.Quote("warranty_registrations", "created_at").GTE(psql.Arg(time.Now().AddDate(0, -12, 0)))),
-		sm.GroupBy(psql.Quote("warranty_registrations", "created_at")),
-		sm.OrderBy(psql.Quote("warranty_registrations", "created_at")).Desc(),
-	)
-	result.MonthlyRegistrations, err = dbutil.GetAll[models.MonthlyRegistration](ctx, r.db, builder)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
-
-	// 月度統計
-	// monthlyQuery := `
-	// 	SELECT
-	// 		EXTRACT(YEAR FROM created_at) as year,
-	// 		EXTRACT(MONTH FROM created_at) as month,
-	// 		COUNT(*) as count
-	// 	FROM warranty_registrations
-	// 	WHERE created_at >= NOW() - INTERVAL '12 months'
-	// 	GROUP BY EXTRACT(YEAR FROM created_at), EXTRACT(MONTH FROM created_at)
-	// 	ORDER BY year DESC, month DESC
-	// `
 }
 
 // filterByPatientID 根據身分證字號過濾保固記錄

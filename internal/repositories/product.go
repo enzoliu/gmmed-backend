@@ -81,6 +81,33 @@ func (r *ProductRepository) GetByID(ctx context.Context, id string) (*models.Pro
 	return dbutil.GetOne[models.Product](ctx, r.db, builder)
 }
 
+func (r *ProductRepository) GetOneBySerialNumber(ctx context.Context, serialNumber string) (*models.Product, error) {
+	builder := psql.Select(
+		sm.Columns(
+			"products.id",
+			"products.model_number",
+			"products.brand",
+			"products.type",
+			"products.size",
+			"products.warranty_years",
+			"products.description",
+			"products.is_active",
+			"products.created_at",
+			"products.updated_at",
+		),
+		sm.From("products"),
+		sm.LeftJoin("serials").On(psql.Quote("products", "id").EQ(psql.Quote("serials", "product_id"))),
+		sm.Where(psql.And(
+			psql.Quote("products", "is_active").EQ(psql.Arg(true)),
+			psql.Quote("products", "deleted_at").IsNull(),
+			psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber)),
+			psql.Quote("serials", "deleted_at").IsNull(),
+		)),
+		sm.Limit(1),
+	)
+	return dbutil.GetOne[models.Product](ctx, r.db, builder)
+}
+
 // GetOneByCondition 根據條件取得單一產品
 func (r *ProductRepository) GetOneByCondition(ctx context.Context, req *models.ProductSearchRequest) (*models.Product, error) {
 	conditions := []bob.Expression{
