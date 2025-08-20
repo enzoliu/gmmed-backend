@@ -17,6 +17,11 @@ type Serial struct {
 	UpdatedAt        time.Time   `json:"updated_at" db:"updated_at"`
 }
 
+type SerialWithWarranty struct {
+	Serial
+	WarrantyID null.String `json:"warranty_id" db:"warranty_id"`
+}
+
 // SerialImportItem 用於大量匯入的序號項目
 type SerialImportItem struct {
 	Index            int    `json:"index"`
@@ -38,6 +43,7 @@ type SerialSearchRequest struct {
 	ProductID        null.String `query:"product_id"`
 	IsUsedByWarranty null.Bool   `query:"is_used_by_warranty"`
 	SearchDeleted    null.Bool   `query:"search_deleted"`
+	SearchWarranty   null.Bool   `query:"search_warranty"`
 	entity.Pagination
 }
 

@@ -57,6 +57,14 @@ type SerialListResponse struct {
 	TotalPages int              `json:"total_pages"`
 }
 
+type SerialListResponseWithWarranty struct {
+	Serials    []*models.SerialWithWarranty `json:"serials"`
+	Total      int                          `json:"total"`
+	Page       int                          `json:"page"`
+	PageSize   int                          `json:"page_size"`
+	TotalPages int                          `json:"total_pages"`
+}
+
 // Create 建立序號
 func (s *SerialService) Create(ctx context.Context, req *SerialCreateRequest, auditCtx *models.AuditContext) (*models.Serial, error) {
 	// 驗證輸入
@@ -257,7 +265,7 @@ func (s *SerialService) Delete(ctx context.Context, id string, auditCtx *models.
 }
 
 // Search 搜尋序號
-func (s *SerialService) Search(ctx context.Context, req *models.SerialSearchRequest, page *entity.Pagination) (*SerialListResponse, error) {
+func (s *SerialService) Search(ctx context.Context, req *models.SerialSearchRequest, page *entity.Pagination) (*SerialListResponseWithWarranty, error) {
 	// 驗證分頁參數
 	if page == nil {
 		page = &entity.Pagination{
@@ -288,7 +296,7 @@ func (s *SerialService) Search(ctx context.Context, req *models.SerialSearchRequ
 		totalPages++
 	}
 
-	return &SerialListResponse{
+	return &SerialListResponseWithWarranty{
 		Serials:    serials,
 		Total:      total,
 		Page:       page.Page,

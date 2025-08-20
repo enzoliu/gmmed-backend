@@ -387,7 +387,7 @@ func (r *SerialRepository) ListDuplicateSerials(ctx context.Context, req *models
 }
 
 // Search 搜尋序號
-func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchRequest, page *entity.Pagination) ([]*models.Serial, int, error) {
+func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchRequest, page *entity.Pagination) ([]*models.SerialWithWarranty, int, error) {
 	conditions := []bob.Expression{}
 
 	if req.ID.Valid {
@@ -418,32 +418,36 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 	}
 	conditions = append(conditions, deleteCondition)
 
+	// 搜尋保固序號是否使用中
+	if req.IsUsedByWarranty.Valid {
+		if req.IsUsedByWarranty.Bool {
+			conditions = append(conditions,
+				psql.Quote("w", "id").IsNotNull(),
+			)
+		} else {
+			conditions = append(conditions, psql.Quote("w", "id").IsNull())
+		}
+	}
+
 	builder := psql.Select(
 		sm.Columns(
-			"id",
-			"serial_number",
-			"full_serial_number",
-			"product_id",
-			"created_at",
-			"updated_at",
-			"COUNT(id) OVER() AS total_count",
+			"serials.id",
+			"serials.serial_number",
+			"serials.full_serial_number",
+			"serials.product_id",
+			"serials.created_at",
+			"serials.updated_at",
+			"w.id AS warranty_id",
+			"COUNT(serials.id) OVER() AS total_count",
 		),
 		sm.From("serials"),
-	)
-
-	if req.IsUsedByWarranty.Valid {
-		builder.Apply(sm.LeftJoin("warranty_registrations").As("w").On(
+		sm.LeftJoin("warranty_registrations").As("w").On(
 			psql.Or(
 				psql.Quote("w", "product_serial_number").EQ(psql.Quote("serials", "serial_number")),
 				psql.Quote("w", "serial_number_2").EQ(psql.Quote("serials", "serial_number")),
 			),
-		))
-		if req.IsUsedByWarranty.Bool {
-			builder.Apply(sm.Where(psql.Quote("w", "id").IsNotNull()))
-		} else {
-			builder.Apply(sm.Where(psql.Quote("w", "id").IsNull()))
-		}
-	}
+		),
+	)
 
 	if len(conditions) > 0 {
 		builder.Apply(sm.Where(psql.And(conditions...)))
@@ -455,7 +459,7 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 	)
 
 	type SerialWithTotalCount struct {
-		models.Serial
+		models.SerialWithWarranty
 		TotalCount int `db:"total_count"`
 	}
 
@@ -464,9 +468,9 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 		return nil, 0, err
 	}
 
-	serials := make([]*models.Serial, len(swtts))
+	serials := make([]*models.SerialWithWarranty, len(swtts))
 	for i, swt := range swtts {
-		serials[i] = &swt.Serial
+		serials[i] = &swt.SerialWithWarranty
 	}
 
 	total := 0
