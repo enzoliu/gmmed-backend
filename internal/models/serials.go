@@ -17,8 +17,14 @@ type Serial struct {
 	UpdatedAt        time.Time   `json:"updated_at" db:"updated_at"`
 }
 
+type SerialWithChecksum struct {
+	Serial
+	Checksum string `json:"checksum"`
+}
+
 type SerialWithWarranty struct {
 	Serial
+	// Checksum   string      `json:"checksum" db:"-"`
 	WarrantyID null.String `json:"warranty_id" db:"warranty_id"`
 }
 
@@ -35,12 +41,19 @@ type SerialImportRequest struct {
 	Serials []SerialImportItem `json:"serials" validate:"required,min=1,dive"`
 }
 
+type SerialCheckRequest struct {
+	SerialNumber string `query:"serial_number" validate:"required,max=20"`
+	// Checksum     string `query:"checksum" validate:"required,max=8"`
+	WarrantyID string `query:"warranty_id" validate:"required,uuid"`
+}
+
 // SerialSearchRequest 序號搜尋請求
 type SerialSearchRequest struct {
 	ID               null.String `query:"id"`
 	SerialNumber     null.String `query:"serial_number"`
 	FullSerialNumber null.String `query:"full_serial_number"`
 	ProductID        null.String `query:"product_id"`
+	ProductType      null.String `query:"product_type"`
 	IsUsedByWarranty null.Bool   `query:"is_used_by_warranty"`
 	SearchDeleted    null.Bool   `query:"search_deleted"`
 	SearchWarranty   null.Bool   `query:"search_warranty"`

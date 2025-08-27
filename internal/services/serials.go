@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"log/slog"
+	"regexp"
 	"slices"
 
 	"breast-implant-warranty-system/internal/entity"
@@ -16,18 +19,24 @@ import (
 	"github.com/guregu/null/v5"
 )
 
+type SerialRouteConfigItf interface {
+	EncryptionKey() string
+}
+
 // SerialService 序號服務
 type SerialService struct {
 	db           dbutil.PgxClientItf
+	cfg          SerialRouteConfigItf
 	serialRepo   *repositories.SerialRepository
 	productRepo  *repositories.ProductRepository
 	auditService *AuditService
 }
 
 // NewSerialService 建立新的序號服務
-func NewSerialService(db dbutil.PgxClientItf) *SerialService {
+func NewSerialService(db dbutil.PgxClientItf, cfg SerialRouteConfigItf) *SerialService {
 	return &SerialService{
 		db:           db,
+		cfg:          cfg,
 		serialRepo:   repositories.NewSerialRepository(db),
 		productRepo:  repositories.NewProductRepository(db),
 		auditService: NewAuditService(db),
@@ -50,11 +59,11 @@ type SerialUpdateRequest struct {
 
 // SerialListResponse 序號列表回應
 type SerialListResponse struct {
-	Serials    []*models.Serial `json:"serials"`
-	Total      int              `json:"total"`
-	Page       int              `json:"page"`
-	PageSize   int              `json:"page_size"`
-	TotalPages int              `json:"total_pages"`
+	Serials    []*models.SerialWithChecksum `json:"serials"`
+	Total      int                          `json:"total"`
+	Page       int                          `json:"page"`
+	PageSize   int                          `json:"page_size"`
+	TotalPages int                          `json:"total_pages"`
 }
 
 type SerialListResponseWithWarranty struct {
@@ -117,7 +126,7 @@ func (s *SerialService) Create(ctx context.Context, req *SerialCreateRequest, au
 }
 
 // GetByID 根據ID取得序號
-func (s *SerialService) GetByID(ctx context.Context, id string) (*models.Serial, error) {
+func (s *SerialService) GetByID(ctx context.Context, id string) (*models.SerialWithChecksum, error) {
 	if id == "" {
 		return nil, errors.New("serial ID is required")
 	}
@@ -131,25 +140,17 @@ func (s *SerialService) GetByID(ctx context.Context, id string) (*models.Serial,
 		return nil, errors.New("serial not found")
 	}
 
-	return serial, nil
-}
-
-// GetBySerialNumber 根據序號取得序號
-func (s *SerialService) GetBySerialNumber(ctx context.Context, serialNumber string) (*models.Serial, error) {
-	if serialNumber == "" {
-		return nil, errors.New("serial number is required")
-	}
-
-	serial, err := s.serialRepo.GetBySerialNumber(ctx, serialNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get serial: %w", err)
-	}
-
-	if serial == nil {
-		return nil, errors.New("serial not found")
-	}
-
-	return serial, nil
+	return &models.SerialWithChecksum{
+		Serial: models.Serial{
+			ID:               serial.ID,
+			SerialNumber:     serial.SerialNumber,
+			FullSerialNumber: serial.FullSerialNumber,
+			ProductID:        serial.ProductID,
+			CreatedAt:        serial.CreatedAt,
+			UpdatedAt:        serial.UpdatedAt,
+		},
+		// Checksum: s.generateSerialKey(serial.SerialNumber),
+	}, nil
 }
 
 // Update 更新序號
@@ -239,15 +240,17 @@ func (s *SerialService) Delete(ctx context.Context, id string, auditCtx *models.
 	}
 
 	// 檢查序號是否被保固使用
-	serialsUsedByWarranty, _, err := s.serialRepo.ListSerialsUsedByWarranty(ctx, &entity.Pagination{Limit: 1})
+	serials, _, err := s.serialRepo.Search(ctx, &models.SerialSearchRequest{
+		ID:               null.StringFrom(id),
+		IsUsedByWarranty: null.BoolFrom(true),
+	}, &entity.Pagination{
+		Limit: 1,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to check warranty usage: %w", err)
+		return fmt.Errorf("failed to search serials: %w", err)
 	}
-
-	for _, serial := range serialsUsedByWarranty {
-		if serial.ID == id {
-			return errors.New("cannot delete serial that is used by warranty")
-		}
+	if len(serials) > 0 {
+		return errors.New("cannot delete serial that is used by warranty")
 	}
 
 	// 刪除序號
@@ -289,6 +292,11 @@ func (s *SerialService) Search(ctx context.Context, req *models.SerialSearchRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to search serials: %w", err)
 	}
+
+	// 暫時不使用checksum
+	// for _, serial := range serials {
+	// 	serial.Checksum = s.generateSerialKey(serial.SerialNumber)
+	// }
 
 	// 計算總頁數
 	totalPages := int(float64(total) / float64(page.PageSize))
@@ -391,18 +399,24 @@ func (s *SerialService) BulkCreate(ctx context.Context, req *models.SerialBulkIm
 	return response, nil
 }
 
-// CheckSerialExists 檢查序號是否存在，存在的話會回傳product id
-func (s *SerialService) CheckSerialExists(ctx context.Context, serialNumber string) (string, error) {
+func (s *SerialService) IsValidSerialNumberAndGetProductID(ctx context.Context, serialNumber, checksum string) (bool, string, error) {
 	if serialNumber == "" {
-		return "", errors.New("序號不能為空字串")
+		return false, "", errors.New("序號或驗證碼不正確-ERR_SERIAL_001")
 	}
-
-	productID, err := s.serialRepo.ExistsBySerialNumber(ctx, serialNumber)
+	re := regexp.MustCompile(`^\d{7}-\d{3}$`)
+	if !re.MatchString(serialNumber) {
+		return false, "", errors.New("序號或驗證碼不正確-ERR_SERIAL_002")
+	}
+	// 暫時不使用checksum
+	// if checksum != s.generateSerialKey(serialNumber) {
+	// 	return false, "", errors.New("序號或驗證碼不正確-ERR_SERIAL_003")
+	// }
+	valid, productID, err := s.serialRepo.IsValidSerialNumberAndGetProductID(ctx, serialNumber)
 	if err != nil {
-		return "", fmt.Errorf("無法檢查序號是否存在: %w", err)
+		slog.Error("IsValidSerialNumber", "serialNumber", serialNumber, "error", err)
+		return false, "", errors.New("序號或驗證碼不正確-ERR_SERIAL_004")
 	}
-
-	return productID, nil
+	return valid, productID, nil
 }
 
 // GetSerialsWithProduct 取得序號及其產品資訊
@@ -432,15 +446,18 @@ func (s *SerialService) GetSerialsWithProduct(ctx context.Context, req *models.S
 	}
 
 	// 轉換為 Serial 類型
-	serialModels := make([]*models.Serial, len(serials))
+	serialModels := make([]*models.SerialWithChecksum, len(serials))
 	for i, serialDetail := range serials {
-		serialModels[i] = &models.Serial{
-			ID:               serialDetail.ID,
-			SerialNumber:     serialDetail.SerialNumber,
-			FullSerialNumber: serialDetail.FullSerialNumber,
-			ProductID:        serialDetail.ProductID,
-			CreatedAt:        serialDetail.CreatedAt,
-			UpdatedAt:        serialDetail.UpdatedAt,
+		serialModels[i] = &models.SerialWithChecksum{
+			Serial: models.Serial{
+				ID:               serialDetail.ID,
+				SerialNumber:     serialDetail.SerialNumber,
+				FullSerialNumber: serialDetail.FullSerialNumber,
+				ProductID:        serialDetail.ProductID,
+				CreatedAt:        serialDetail.CreatedAt,
+				UpdatedAt:        serialDetail.UpdatedAt,
+			},
+			// Checksum: s.generateSerialKey(serialDetail.SerialNumber),
 		}
 	}
 
@@ -566,4 +583,11 @@ func (s *SerialService) recordAuditLog(ctx context.Context, auditCtx *models.Aud
 		// 記錄錯誤但不影響主要業務流程
 		fmt.Printf("Failed to create audit log: %v\n", err)
 	}
+}
+
+// generateSerialKey 生成序號key (4位數字)
+func (s *SerialService) generateSerialKey(serialNumber string) string {
+	h := fnv.New32a()
+	h.Write([]byte(s.cfg.EncryptionKey() + serialNumber))
+	return fmt.Sprintf("%04d", h.Sum32()%10_000)
 }

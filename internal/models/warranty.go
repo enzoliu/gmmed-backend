@@ -9,6 +9,7 @@ import (
 const (
 	SurgeryDateFormat              = "2006-01-02T15:04:05" // 手術日期格式
 	ProductSerialNumberPattern     = `^\d{7}-\d{3}$`       // 產品序號格式：7位數字-3位數字
+	STEP_ALL                       = -1
 	STEP_BLANK                     = 0
 	STEP_SERIAL_VERIFIED           = 1
 	STEP_PATIENT_INFO_FILLED       = 2

@@ -196,9 +196,12 @@ func (r *WarrantyRepository) Update(ctx context.Context, warranty *models.Warran
 
 // Delete 軟性刪除保固登記
 func (r *WarrantyRepository) Delete(ctx context.Context, id string) error {
+	// 刪除保固會釋放序號，所以需要將 product_serial_number 和 serial_number_2 設為 NULL
 	builder := psql.Update(
 		um.Table("warranty_registrations"),
 		um.SetCol("deleted_at").To("NOW()"),
+		um.SetCol("product_serial_number").To("NULL"),
+		um.SetCol("serial_number_2").To("NULL"),
 		um.Where(psql.Quote("warranty_registrations", "id").EQ(psql.Arg(id))),
 	)
 
@@ -236,10 +239,6 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 	conditions = append(conditions,
 		psql.Quote("warranty_registrations", "created_at").NE(psql.Quote("warranty_registrations", "updated_at")),
 	)
-	// 只找 step 為 3 的保固記錄
-	conditions = append(conditions,
-		psql.Quote("warranty_registrations", "step").EQ(psql.Arg(models.STEP_WARRANTY_ESTABLISHED)),
-	)
 
 	// 檢查是否可能是身分證字號搜尋
 	isPossiblePatientID := req.GeneralSearch.Valid && len(req.GeneralSearch.String) == 10 &&
@@ -274,7 +273,6 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 					psql.Quote("warranty_registrations", "serial_number_2").ILike(psql.Arg("%"+req.SerialNumber.String+"%")),
 				),
 			)
-
 		}
 	}
 
@@ -313,6 +311,12 @@ func (r *WarrantyRepository) Search(ctx context.Context, req *models.WarrantySea
 		}
 		conditions = append(conditions,
 			psql.Quote("warranty_registrations", "surgery_date").LTE(psql.Arg(parsedEndDate)),
+		)
+	}
+
+	if req.Step.Valid && req.Step.Int64 != int64(models.STEP_ALL) {
+		conditions = append(conditions,
+			psql.Quote("warranty_registrations", "step").EQ(psql.Arg(int(req.Step.Int64))),
 		)
 	}
 

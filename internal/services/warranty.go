@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"time"
 
 	"breast-implant-warranty-system/internal/models"
@@ -15,7 +14,6 @@ import (
 	"breast-implant-warranty-system/pkg/dbutil"
 
 	"github.com/guregu/null/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,25 +29,27 @@ type WarrantyRouteConfigItf interface {
 
 // WarrantyService 保固服務
 type WarrantyService struct {
-	db           dbutil.PgxClientItf
-	cfg          WarrantyRouteConfigItf
-	warrantyRepo *repositories.WarrantyRepository
-	productRepo  *repositories.ProductRepository
-	serialRepo   *repositories.SerialRepository
-	emailService *EmailService
-	auditService *AuditService
+	db            dbutil.PgxClientItf
+	cfg           WarrantyRouteConfigItf
+	warrantyRepo  *repositories.WarrantyRepository
+	productRepo   *repositories.ProductRepository
+	serialRepo    *repositories.SerialRepository
+	emailService  *EmailService
+	auditService  *AuditService
+	serialService *SerialService
 }
 
 // NewWarrantyService 建立新的保固服務
 func NewWarrantyService(db dbutil.PgxClientItf, cfg WarrantyRouteConfigItf) *WarrantyService {
 	return &WarrantyService{
-		db:           db,
-		cfg:          cfg,
-		warrantyRepo: repositories.NewWarrantyRepository(db, cfg.EncryptionKey()),
-		productRepo:  repositories.NewProductRepository(db),
-		serialRepo:   repositories.NewSerialRepository(db),
-		emailService: NewEmailService(cfg),
-		auditService: NewAuditService(db),
+		db:            db,
+		cfg:           cfg,
+		warrantyRepo:  repositories.NewWarrantyRepository(db, cfg.EncryptionKey()),
+		productRepo:   repositories.NewProductRepository(db),
+		serialRepo:    repositories.NewSerialRepository(db),
+		emailService:  NewEmailService(cfg),
+		auditService:  NewAuditService(db),
+		serialService: NewSerialService(db, cfg),
 	}
 }
 
@@ -154,9 +154,12 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 	}
 	// 檢查是否已被使用
 	if req.ProductSerialNumber != oldWarranty.ProductSerialNumber.String && req.ProductSerialNumber != oldWarranty.ProductSerialNumber2.String {
-		exists, _ := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber)
-		if exists {
-			return nil, errors.New("產品序號1已被使用")
+		valid, _, err := s.serialService.IsValidSerialNumberAndGetProductID(ctx, req.ProductSerialNumber, "")
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			return nil, errors.New("產品序號1不正確")
 		}
 	}
 
@@ -169,9 +172,12 @@ func (s *WarrantyService) Update(ctx context.Context, id string, req *models.War
 		}
 		// 檢查是否已被使用，如果是同一份保固更新前使用過的序號，則不檢查
 		if req.ProductSerialNumber2 != oldWarranty.ProductSerialNumber2.String && req.ProductSerialNumber2 != oldWarranty.ProductSerialNumber.String {
-			exists, _ := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber2)
-			if exists {
-				return nil, errors.New("產品序號2已被使用")
+			valid, _, err := s.serialService.IsValidSerialNumberAndGetProductID(ctx, req.ProductSerialNumber2, "")
+			if err != nil {
+				return nil, err
+			}
+			if !valid {
+				return nil, errors.New("產品序號2不正確")
 			}
 		}
 		warranty.ProductSerialNumber2 = null.StringFrom(utils.SanitizeString(req.ProductSerialNumber2))
@@ -371,28 +377,6 @@ func (s *WarrantyService) recordAuditLog(ctx context.Context, auditCtx *models.A
 	}
 }
 
-// CheckSerialNumberExists 檢查產品序號是否已被使用
-func (s *WarrantyService) CheckSerialNumberExists(ctx context.Context, serialNumber string) (bool, error) {
-	if serialNumber == "" {
-		return false, errors.New("serial number is required")
-	}
-	re := regexp.MustCompile(`^\d{7}-\d{3}$`)
-	if !re.MatchString(serialNumber) {
-		return false, errors.New("serial number must be in the format XXXXXXX-XXX")
-	}
-
-	warranty, err := s.warrantyRepo.GetByProductSerialNumber(ctx, serialNumber)
-	if err != nil && err == pgx.ErrNoRows {
-		return false, nil
-	}
-
-	if warranty != nil {
-		return true, nil
-	}
-
-	return false, nil
-}
-
 // BatchCreateEmptyWarranties 批次創建空白保固記錄
 func (s *WarrantyService) BatchCreateEmptyWarranties(ctx context.Context, count int, auditCtx *models.AuditContext) ([]string, error) {
 	if count <= 0 || count > 100 {
@@ -427,7 +411,6 @@ func (s *WarrantyService) GetWarrantyStatusByPatient(ctx context.Context, id str
 
 func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string, req *models.PatientRegistrationRequestStep1, auditCtx *models.AuditContext) (*models.WarrantyRegistration, error) {
 	// 檢查保固是否存在且可編輯
-	fmt.Println("1")
 	warranty, err := s.warrantyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -444,45 +427,34 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 	// 保存舊資料用於 audit 記錄
 	oldWarranty := *warranty
 
-	fmt.Println("2")
 	// 驗證產品序號不重複
-	exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber)
+	valid, productID, err := s.serialService.IsValidSerialNumberAndGetProductID(ctx, req.ProductSerialNumber, "")
 	if err != nil {
 		return nil, err
 	}
-	if exists {
-		return nil, errors.New("product serial number already registered")
-	}
-	fmt.Println("3")
-	productID, err := s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber)
-	if err != nil {
-		return nil, err
+	if !valid {
+		return nil, errors.New("序號或驗證碼不正確-ERR_SERIAL_005")
 	}
 	if productID == "" {
-		return nil, errors.New("product serial number not valid")
+		return nil, errors.New("序號或驗證碼不正確-ERR_SERIAL_006")
 	}
-	fmt.Println("4")
+
 	// 如果有第二個序號，也要檢查
 	if req.ProductSerialNumber2 != "" {
 		if req.ProductSerialNumber2 == req.ProductSerialNumber {
 			return nil, errors.New("two serial numbers cannot be the same")
 		}
-		exists, err := s.CheckSerialNumberExists(ctx, req.ProductSerialNumber2)
+		valid, productID, err := s.serialService.IsValidSerialNumberAndGetProductID(ctx, req.ProductSerialNumber2, "")
 		if err != nil {
 			return nil, err
 		}
-		if exists {
-			return nil, errors.New("second product serial number already registered")
-		}
-		productID, err = s.serialRepo.ExistsBySerialNumber(ctx, req.ProductSerialNumber2)
-		if err != nil {
-			return nil, err
+		if !valid {
+			return nil, errors.New("序號或驗證碼不正確-ERR_SERIAL_005")
 		}
 		if productID == "" {
-			return nil, errors.New("product serial number not valid")
+			return nil, errors.New("序號或驗證碼不正確-ERR_SERIAL_006")
 		}
 	}
-	fmt.Println("5")
 	// 驗證手術日期不能在未來
 	if req.SurgeryDate.Time.After(time.Now()) {
 		return nil, errors.New("surgery date cannot be in the future")
@@ -493,7 +465,6 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("6")
 	warranty.WarrantyStartDate = null.TimeFrom(req.SurgeryDate.Time)
 	warranty.Step = models.STEP_SERIAL_VERIFIED
 	switch warrantyYears {
@@ -515,13 +486,11 @@ func (s *WarrantyService) RegisterByPatientStep1(ctx context.Context, id string,
 		serialNumber2 := utils.SanitizeString(req.ProductSerialNumber2)
 		warranty.ProductSerialNumber2 = null.StringFrom(serialNumber2)
 	}
-	fmt.Println("7")
 	// 更新保固記錄
 	err = s.warrantyRepo.Update(ctx, warranty)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("8")
 	// 記錄 audit 日誌
 	s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, &id, &oldWarranty, warranty)
 

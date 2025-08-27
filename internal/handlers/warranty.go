@@ -220,19 +220,15 @@ func (h *WarrantyHandler) UpdateExpiredWarranties(c echo.Context) error {
 // CheckSerialNumber 檢查產品序號是否已被使用
 func (h *WarrantyHandler) CheckSerialNumber(c echo.Context) error {
 	ctx := c.Request().Context()
-	serialNumber := c.QueryParam("serial_number")
-	warrantyID := c.QueryParam("warranty_id")
-	if serialNumber == "" {
+	var req models.SerialCheckRequest
+	if err := validator.Load(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "必須提供產品序號資訊",
+			"error": err.Error(),
 		})
 	}
-	// 防止有心人士直接呼叫此API，所有錯誤都回傳403
-	if warrantyID == "" {
-		return c.NoContent(http.StatusForbidden)
-	}
+
 	// 如果保固已經填寫過，則回傳403（避免有心人士直接呼叫此API去try）
-	step, err := h.service.GetWarrantyStatusByPatient(ctx, warrantyID)
+	step, err := h.service.GetWarrantyStatusByPatient(ctx, req.WarrantyID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -242,33 +238,23 @@ func (h *WarrantyHandler) CheckSerialNumber(c echo.Context) error {
 		return c.NoContent(http.StatusForbidden)
 	}
 
-	exists, err := h.service.CheckSerialNumberExists(ctx, serialNumber)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
-	}
-
 	// 呼叫serial service 的 CheckSerialExists
-	productID, err := h.serialService.CheckSerialExists(ctx, serialNumber)
+	valid, productID, err := h.serialService.IsValidSerialNumberAndGetProductID(ctx, req.SerialNumber, "")
 	if err != nil {
 		// 在伺服器端印出錯誤, 使用slog
 		slog.Error("CheckSerialNumber - CheckSerialExists", "error", err)
 		return c.NoContent(http.StatusForbidden)
 	}
-	if productID == "" {
-		slog.Error("CheckSerialNumber - CheckSerialExists", "error", "序號不存在")
-		return c.NoContent(http.StatusForbidden)
-	}
 
 	response := models.SerialNumberCheckResponse{
-		Exists:    exists,
+		Exists:    false,
 		ProductID: productID,
 		Message:   "產品序號可使用",
 	}
-	if exists {
+	if !valid {
+		response.Exists = true
 		response.ProductID = ""
-		response.Message = "產品序號已被註冊"
+		response.Message = "產品序號無法使用"
 		return c.JSON(http.StatusConflict, response)
 	}
 

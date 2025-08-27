@@ -33,6 +33,6 @@ func NewServices(db dbutil.PgxClientItf, cfg GMMedServiceConfigItf) *Services {
 		Audit:    NewAuditService(db),
 		Auth:     NewAuthService(db, cfg),
 		Email:    NewEmailService(cfg),
-		Serial:   NewSerialService(db),
+		Serial:   NewSerialService(db, cfg),
 	}
 }

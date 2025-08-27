@@ -23,6 +23,7 @@ type MailgunConfigItf interface {
 	CompanyNotificationEmail() string
 	CompanyName() string
 	CompanyEmail() string
+	AppURL() string
 }
 
 // EmailService 信件服務
@@ -60,6 +61,7 @@ type WarrantyConfirmationData struct {
 	CompanyName        string
 	CompanyEmail       string
 	RegistrationID     string
+	AppURL             string
 	IsLifetimeWarranty bool
 }
 
@@ -233,6 +235,7 @@ func (s *EmailService) prepareWarrantyData(warranty *models.WarrantyRegistration
 		CompanyEmail:       s.cfg.CompanyEmail(),
 		RegistrationID:     warranty.ID,
 		IsLifetimeWarranty: isLifetimeWarranty,
+		AppURL:             s.cfg.AppURL(),
 	}
 
 	// 填充產品資訊
@@ -348,7 +351,8 @@ func (s *EmailService) generateHTMLBody(data *WarrantyConfirmationData) (string,
                 <strong>📋 重要提醒：</strong><br>
                 • 請妥善保存此信件作為保固憑證<br>
                 • 如需保固服務，請提供登記編號<br>
-                • 如有任何術後問題，請聯繫您的手術醫院
+                • 如有任何術後問題，請聯繫您的手術醫院<br>
+								<a href="{{.AppURL}}/legal">點此查看保固條款</a>
             </div>
         </div>
 

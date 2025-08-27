@@ -66,106 +66,51 @@ func (r *SerialRepository) GetByID(ctx context.Context, id string) (*models.Seri
 	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
 }
 
-// GetBySerialNumber 根據序號取得序號資訊
-func (r *SerialRepository) GetBySerialNumber(ctx context.Context, serialNumber string) (*models.Serial, error) {
+func (r *SerialRepository) IsValidSerialNumberAndGetProductID(ctx context.Context, serialNumber string) (bool, string, error) {
 	builder := psql.Select(
 		sm.Columns(
-			"id",
-			"serial_number",
-			"full_serial_number",
-			"product_id",
-			"created_at",
-			"updated_at",
+			"p.id",
 		),
-		sm.From("serials"),
+		sm.Distinct(),
+		sm.From("serials").As("s"),
+		sm.InnerJoin("products").As("p").On(
+			psql.Quote("p", "id").EQ(psql.Quote("s", "product_id")),
+		),
 		sm.Where(
 			psql.And(
-				psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber)),
-				psql.Quote("serials", "deleted_at").IsNull(),
+				psql.Quote("s", "deleted_at").IsNull(),
+				psql.Quote("p", "deleted_at").IsNull(),
+				psql.Quote("p", "is_active").EQ(psql.Arg(true)),
+				psql.Quote("s", "serial_number").EQ(psql.Arg(serialNumber)),
+				psql.Raw("NOT EXISTS ?",
+					psql.Select(
+						sm.From("warranty_registrations").As("w"),
+						sm.Where(
+							psql.Or(
+								psql.Quote("w", "product_serial_number").EQ(psql.Quote("s", "serial_number")),
+								psql.Quote("w", "serial_number_2").EQ(psql.Quote("s", "serial_number")),
+							),
+						),
+					),
+				),
 			),
 		),
 		sm.Limit(1),
 	)
-	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
-}
-
-// GetByFullSerialNumber 根據完整序號取得序號資訊
-func (r *SerialRepository) GetByFullSerialNumber(ctx context.Context, fullSerialNumber string) (*models.Serial, error) {
-	builder := psql.Select(
-		sm.Columns(
-			"id",
-			"serial_number",
-			"full_serial_number",
-			"product_id",
-			"created_at",
-			"updated_at",
-		),
-		sm.From("serials"),
-		sm.Where(
-			psql.And(
-				psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber)),
-				psql.Quote("serials", "deleted_at").IsNull(),
-			),
-		),
-		sm.Limit(1),
-	)
-	return dbutil.GetOne[models.Serial](ctx, r.db, builder)
-}
-
-// ExistsBySerialNumber 檢查序號是否存在
-func (r *SerialRepository) ExistsBySerialNumber(ctx context.Context, serialNumber string) (string, error) {
-	builder := psql.Select(
-		sm.Columns("id", "serial_number", "full_serial_number", "product_id", "created_at", "updated_at"),
-		sm.From("serials"),
-		sm.Where(
-			psql.And(
-				psql.Quote("serials", "serial_number").EQ(psql.Arg(serialNumber)),
-				psql.Quote("serials", "deleted_at").IsNull(),
-			),
-		),
-		sm.Limit(1),
-	)
-
-	exists, err := dbutil.GetOne[models.Serial](ctx, r.db, builder)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return "", nil
-		}
-		return "", err
+	type ChkRtnResult struct {
+		ProductID string `db:"id"`
 	}
+
+	exists, err := dbutil.GetOne[ChkRtnResult](ctx, r.db, builder)
+	if err != nil {
+		return false, "", err
+	}
+
 	if exists == nil {
-		return "", nil
-	}
-	if exists.ProductID.Valid {
-		return exists.ProductID.String, nil
+		return false, "", nil
 	}
 
-	return "", nil
-}
-
-// ExistsByFullSerialNumber 檢查完整序號是否存在
-func (r *SerialRepository) ExistsByFullSerialNumber(ctx context.Context, fullSerialNumber string) (bool, error) {
-	builder := psql.Select(
-		sm.Columns("1"),
-		sm.From("serials"),
-		sm.Where(
-			psql.And(
-				psql.Quote("serials", "full_serial_number").EQ(psql.Arg(fullSerialNumber)),
-				psql.Quote("serials", "deleted_at").IsNull(),
-			),
-		),
-		sm.Limit(1),
-	)
-
-	exists, err := dbutil.GetOne[int](ctx, r.db, builder)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return false, nil
-		}
-		return false, err
-	}
-
-	return exists != nil, nil
+	return true, exists.ProductID, nil
 }
 
 // Update 更新序號
@@ -410,6 +355,11 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 			psql.Quote("serials", "product_id").EQ(psql.Arg(req.ProductID.String)),
 		)
 	}
+	if req.ProductType.Valid {
+		conditions = append(conditions,
+			psql.Quote("p", "type").ILike(psql.Arg("%"+req.ProductType.String+"%")),
+		)
+	}
 
 	// 預設不搜尋已刪除的序號
 	deleteCondition := psql.Quote("serials", "deleted_at").IsNull()
@@ -441,6 +391,9 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 			"COUNT(serials.id) OVER() AS total_count",
 		),
 		sm.From("serials"),
+		sm.LeftJoin("products").As("p").On(
+			psql.Quote("p", "id").EQ(psql.Quote("serials", "product_id")),
+		),
 		sm.LeftJoin("warranty_registrations").As("w").On(
 			psql.Or(
 				psql.Quote("w", "product_serial_number").EQ(psql.Quote("serials", "serial_number")),
@@ -479,29 +432,6 @@ func (r *SerialRepository) Search(ctx context.Context, req *models.SerialSearchR
 	}
 
 	return serials, total, nil
-}
-
-// GetByProductID 根據產品ID取得所有序號
-func (r *SerialRepository) GetByProductID(ctx context.Context, productID string) ([]*models.Serial, error) {
-	builder := psql.Select(
-		sm.Columns(
-			"id",
-			"serial_number",
-			"full_serial_number",
-			"product_id",
-			"created_at",
-			"updated_at",
-		),
-		sm.From("serials"),
-		sm.Where(
-			psql.And(
-				psql.Quote("serials", "product_id").EQ(psql.Arg(productID)),
-				psql.Quote("serials", "deleted_at").IsNull(),
-			),
-		),
-		sm.OrderBy(psql.Quote("serials", "created_at")).Desc(),
-	)
-	return dbutil.GetAll[models.Serial](ctx, r.db, builder)
 }
 
 // GetSerialsWithProduct 取得序號及其產品資訊
@@ -583,56 +513,6 @@ func (r *SerialRepository) GetSerialsWithProduct(ctx context.Context, req *model
 	total := 0
 	if len(swpts) > 0 {
 		total = swpts[0].TotalCount
-	}
-
-	return serials, total, nil
-}
-
-// ListSerialsUsedByWarranty 列出已經被保固使用的序號
-func (r *SerialRepository) ListSerialsUsedByWarranty(ctx context.Context, page *entity.Pagination) ([]*models.Serial, int, error) {
-	// 構建查詢：找出有保固記錄的序號
-	builder := psql.Select(
-		sm.Columns(
-			"s.id",
-			"s.serial_number",
-			"s.full_serial_number",
-			"s.product_id",
-			"s.created_at",
-			"s.updated_at",
-			"COUNT(*) OVER() AS total_count",
-		),
-		sm.From("serials").As("s"),
-		sm.InnerJoin("warranty_registrations").As("w").On(
-			psql.Quote("s", "serial_number").EQ(psql.Quote("w", "product_serial_number")),
-		),
-		sm.OrderBy(psql.Quote("w", "created_at")).Desc().Asc(),
-	)
-
-	// 添加分頁
-	if page != nil {
-		builder.Apply(sm.Limit(page.Limit))
-		builder.Apply(sm.Offset(page.Offset))
-	}
-
-	// 執行查詢
-	type SerialWithTotal struct {
-		models.Serial
-		TotalCount int `db:"total_count"`
-	}
-
-	serialsWithTotal, err := dbutil.GetAll[SerialWithTotal](ctx, r.db, builder)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get serials used by warranty: %w", err)
-	}
-
-	// 提取序號和總數
-	serials := make([]*models.Serial, len(serialsWithTotal))
-	total := 0
-	for i, swt := range serialsWithTotal {
-		serials[i] = &swt.Serial
-		if i == 0 {
-			total = swt.TotalCount
-		}
 	}
 
 	return serials, total, nil

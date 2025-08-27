@@ -2,10 +2,6 @@ package main
 
 import (
 	"breast-implant-warranty-system/core/singleton"
-	"fmt"
-	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -34,6 +30,7 @@ type Config struct {
 	SERVER_HOST string `env:"SERVER_HOST" envDefault:"localhost"`
 	DEBUG       bool   `env:"DEBUG" envDefault:"true"`
 	LOG_LEVEL   string `env:"LOG_LEVEL" envDefault:"info"`
+	APP_URL     string `env:"APP_URL" envDefault:"http://localhost:5173"`
 
 	// Email 範本設定
 	EMAIL_TEMPLATE_SUBJECT     string `env:"EMAIL_TEMPLATE_SUBJECT" envDefault:"{patient_surname} 您的植入物保固已完成登錄"`
@@ -43,17 +40,6 @@ type Config struct {
 	CORS_ALLOWED_ORIGINS string `env:"CORS_ALLOWED_ORIGINS"`
 
 	singleton.PostgresDBConfig
-}
-
-// loadEnvFile 載入 .env 文件
-func loadEnvFile() error {
-	// 檢查 .env 文件是否存在
-	if _, err := os.Stat(".env"); os.IsNotExist(err) {
-		return fmt.Errorf(".env file not found")
-	}
-
-	// 載入 .env 文件
-	return godotenv.Load()
 }
 
 func (cfg *Config) PostgresDBName() string {
@@ -121,4 +107,7 @@ func (cfg *Config) JWTRefreshSecret() string {
 }
 func (cfg *Config) JWTExpireHours() int {
 	return cfg.JWT_EXPIRE_HOURS
+}
+func (cfg *Config) AppURL() string {
+	return cfg.APP_URL
 }

@@ -81,32 +81,6 @@ func (h *SerialHandler) GetByID(c echo.Context) error {
 	return c.JSON(http.StatusOK, serial)
 }
 
-// GetBySerialNumber 根據序號取得序號
-func (h *SerialHandler) GetBySerialNumber(c echo.Context) error {
-	ctx := c.Request().Context()
-
-	serialNumber := c.QueryParam("serial_number")
-	if serialNumber == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "serial number is required",
-		})
-	}
-
-	serial, err := h.service.GetBySerialNumber(ctx, serialNumber)
-	if err != nil {
-		if err.Error() == "serial not found" {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": err.Error(),
-			})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
-	}
-
-	return c.JSON(http.StatusOK, serial)
-}
-
 // Update 更新序號
 func (h *SerialHandler) Update(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -233,33 +207,6 @@ func (h *SerialHandler) BulkCreate(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusMultiStatus, response)
-}
-
-// CheckSerialExists 檢查序號是否存在
-func (h *SerialHandler) CheckSerialExists(c echo.Context) error {
-	ctx := c.Request().Context()
-
-	serialNumber := c.QueryParam("serial_number")
-	if serialNumber == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "serial number is required",
-		})
-	}
-
-	productID, err := h.service.CheckSerialExists(ctx, serialNumber)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
-	}
-
-	if productID != "" {
-		return c.JSON(http.StatusOK, map[string]string{
-			"data": productID,
-		})
-	} else {
-		return c.NoContent(http.StatusNotFound)
-	}
 }
 
 // GetSerialsWithProduct 取得序號及其產品資訊

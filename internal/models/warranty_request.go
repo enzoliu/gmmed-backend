@@ -20,17 +20,19 @@ type GetOneWarrantyResponse struct {
 
 // WarrantyUpdateRequest 保固更新請求
 type WarrantyUpdateRequest struct {
-	PatientName          string         `json:"patient_name"`
-	PatientID            string         `json:"patient_id"`
-	PatientBirthDate     time.Time      `json:"patient_birth_date"`
-	PatientPhone         string         `json:"patient_phone"`
-	PatientEmail         string         `json:"patient_email"`
-	HospitalName         string         `json:"hospital_name"`
-	DoctorName           string         `json:"doctor_name"`
-	SurgeryDate          time.Time      `json:"surgery_date"`
-	ProductSerialNumber  string         `json:"product_serial_number" validate:"required,min=6,max=50"`
-	ProductSerialNumber2 string         `json:"product_serial_number_2,omitempty" validate:"omitempty,min=6,max=50"`
-	Status               WarrantyStatus `json:"status"`
+	PatientName          string    `json:"patient_name"`
+	PatientID            string    `json:"patient_id"`
+	PatientBirthDate     time.Time `json:"patient_birth_date"`
+	PatientPhone         string    `json:"patient_phone"`
+	PatientEmail         string    `json:"patient_email"`
+	HospitalName         string    `json:"hospital_name"`
+	DoctorName           string    `json:"doctor_name"`
+	SurgeryDate          time.Time `json:"surgery_date"`
+	ProductSerialNumber  string    `json:"product_serial_number" validate:"required,min=6,max=50"`
+	ProductSerialNumber2 string    `json:"product_serial_number_2,omitempty" validate:"omitempty,min=6,max=50"`
+	// Checksum             string         `json:"checksum"`
+	// Checksum2            string         `json:"checksum2,omitempty"`
+	Status WarrantyStatus `json:"status"`
 }
 
 // WarrantyListResponse 保固列表回應
@@ -53,6 +55,7 @@ type WarrantySearchRequest struct {
 	StartDate     null.String `query:"start_date"` // YYYY-MM-DD
 	EndDate       null.String `query:"end_date"`   // YYYY-MM-DD
 	SearchDeleted null.Bool   `query:"search_deleted"`
+	Step          null.Int    `query:"step"`
 	entity.Pagination
 }
 
@@ -86,9 +89,11 @@ type WarrantyStepsResponse struct {
 
 // Step1: 驗證產品序號、鎖定手術日期
 type PatientRegistrationRequestStep1 struct {
-	ProductSerialNumber  string      `json:"product_serial_number"`
-	ProductSerialNumber2 string      `json:"product_serial_number_2,omitempty"`
-	SurgeryDate          GoTimeSucks `json:"surgery_date"`
+	ProductSerialNumber  string `json:"product_serial_number"`
+	ProductSerialNumber2 string `json:"product_serial_number_2,omitempty"`
+	// Checksum             string      `json:"checksum"`
+	// Checksum2            string      `json:"checksum2,omitempty"`
+	SurgeryDate GoTimeSucks `json:"surgery_date"`
 }
 
 func (req *PatientRegistrationRequestStep1) Validate() error {
