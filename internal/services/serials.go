@@ -218,7 +218,7 @@ func (s *SerialService) Update(ctx context.Context, id string, req *SerialUpdate
 
 	// 記錄審計日誌
 	if auditCtx != nil {
-		s.recordAuditLog(ctx, auditCtx, "UPDATE", id, existingSerial, updatedSerial)
+		s.recordAuditLog(ctx, auditCtx, models.AuditActionUpdate, id, existingSerial, updatedSerial)
 	}
 
 	return updatedSerial, nil
@@ -261,7 +261,7 @@ func (s *SerialService) Delete(ctx context.Context, id string, auditCtx *models.
 
 	// 記錄審計日誌
 	if auditCtx != nil {
-		s.recordAuditLog(ctx, auditCtx, "DELETE", id, existingSerial, nil)
+		s.recordAuditLog(ctx, auditCtx, models.AuditActionDelete, id, existingSerial, nil)
 	}
 
 	return nil
@@ -389,7 +389,7 @@ func (s *SerialService) BulkCreate(ctx context.Context, req *models.SerialBulkIm
 
 	// 記錄審計日誌
 	if auditCtx != nil {
-		s.recordAuditLog(ctx, auditCtx, "BULK_CREATE", "", nil, map[string]interface{}{
+		s.recordAuditLog(ctx, auditCtx, models.AuditActionCreate, "", nil, map[string]interface{}{
 			"total_count":   len(req.Serials),
 			"success_count": response.SuccessCount,
 			"failed_count":  response.FailedCount,
@@ -534,7 +534,7 @@ func (s *SerialService) validateSerialImportItem(item *models.SerialImportItem) 
 }
 
 // recordAuditLog 記錄審計日誌
-func (s *SerialService) recordAuditLog(ctx context.Context, auditCtx *models.AuditContext, action string, recordID string, oldData, newData interface{}) {
+func (s *SerialService) recordAuditLog(ctx context.Context, auditCtx *models.AuditContext, action models.AuditAction, recordID string, oldData, newData interface{}) {
 	// 序列化舊資料
 	var oldValues []byte
 	if oldData != nil {
@@ -563,7 +563,7 @@ func (s *SerialService) recordAuditLog(ctx context.Context, auditCtx *models.Aud
 	auditReq := &models.CreateAuditLogRequest{
 		UserID:    nil,
 		Action:    models.AuditAction(action),
-		TableName: "serials",
+		TableName: models.AuditTableSerials,
 		RecordID:  recordID,
 		OldValues: oldValues,
 		NewValues: newValues,

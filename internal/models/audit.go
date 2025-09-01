@@ -55,6 +55,7 @@ type AuditTable string
 const (
 	AuditTableUsers                 AuditTable = "users"
 	AuditTableProducts              AuditTable = "products"
+	AuditTableSerials               AuditTable = "serials"
 	AuditTableWarrantyRegistrations AuditTable = "warranty_registrations"
 	AuditTableAuditLogs             AuditTable = "audit_logs"
 	AuditTableAuth                  AuditTable = "auth"
